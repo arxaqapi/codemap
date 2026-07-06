@@ -1,0 +1,1451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Schema — Python code cartographer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+:root{
+  /* signal colors — shared across themes */
+  --calls:#4dd4c4;   /* cyan — outgoing / calls */
+  --refs:#e8a33d;    /* amber — incoming / references */
+  --fn:#6ea8fe; --cls:#c792ea; --type:#7ee787; --file:#8b9bb0;
+  --accent:#4dd4c4;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  --ui:'Inter',system-ui,sans-serif;
+}
+/* deep — the original near-black */
+:root, [data-theme="deep"]{
+  --bg:#0d1117; --bg2:#111823; --panel:#0f1620; --panel2:#141d2a;
+  --line:#1e2a3a; --line2:#28374b;
+  --ink:#e6edf3; --ink-dim:#8b9bb0; --ink-faint:#556579;
+  --shadow:0 8px 30px rgba(0,0,0,.45);
+  --grid-dot:var(--line);
+  --gutter-bg:var(--panel);
+}
+/* slate — a lighter, lifted dark gray */
+[data-theme="slate"]{
+  --bg:#1b2028; --bg2:#222933; --panel:#232a34; --panel2:#2b333f;
+  --line:#333c49; --line2:#414c5c;
+  --ink:#eef2f7; --ink-dim:#a4b1c2; --ink-faint:#6f7d90;
+  --shadow:0 8px 30px rgba(0,0,0,.35);
+  --grid-dot:#2f3945;
+  --gutter-bg:var(--panel);
+}
+html{transition:background .25s}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--ui);overflow:hidden}
+button{font-family:inherit;cursor:pointer}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--line2);border-radius:6px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- LANDING / UPLOAD ---------- */
+#landing{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;background:
+  radial-gradient(1200px 600px at 50% -10%, var(--bg2) 0%, var(--bg) 55%);}
+.brand{display:flex;align-items:baseline;gap:14px;margin-bottom:6px}
+.brand .glyph{font-family:var(--mono);font-weight:700;font-size:15px;color:var(--bg);
+  background:var(--accent);padding:4px 8px;border-radius:5px;letter-spacing:-.5px}
+.brand h1{font-family:var(--mono);font-weight:500;font-size:26px;margin:0;letter-spacing:-.5px}
+.brand h1 b{color:var(--accent);font-weight:700}
+.tag{color:var(--ink-dim);font-size:14px;margin:0 0 34px;max-width:440px;text-align:center;line-height:1.5}
+.tag code{font-family:var(--mono);color:var(--refs);font-size:13px}
+
+.dropzone{width:min(560px,90vw);border:1.5px dashed var(--line2);border-radius:14px;
+  background:linear-gradient(180deg,var(--panel),var(--panel2));padding:38px 34px;
+  transition:border-color .2s,background .2s;text-align:center}
+.dropzone.hot{border-color:var(--accent);background:linear-gradient(180deg,#0f1c22,#132029)}
+.dz-icon{font-family:var(--mono);font-size:30px;color:var(--ink-faint);margin-bottom:14px}
+.dz-title{font-size:16px;font-weight:600;margin-bottom:6px}
+.dz-sub{color:var(--ink-dim);font-size:13px;margin-bottom:22px}
+.dz-sub b{color:var(--ink)}
+.btn{border:1px solid var(--line2);background:var(--panel2);color:var(--ink);
+  padding:9px 16px;border-radius:8px;font-size:13px;font-weight:500;transition:.15s}
+.btn:hover{border-color:var(--accent);color:#fff}
+.btn.primary{background:var(--accent);color:#06231f;border-color:var(--accent);font-weight:600}
+.btn.primary:hover{filter:brightness(1.08)}
+.divider{display:flex;align-items:center;gap:12px;color:var(--ink-faint);
+  font-size:11px;margin:22px 0 18px;text-transform:uppercase;letter-spacing:2px}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--line)}
+.gh-row{display:flex;gap:8px}
+.gh-row input{flex:1;background:var(--bg);border:1px solid var(--line2);color:var(--ink);
+  font-family:var(--mono);font-size:13px;padding:10px 12px;border-radius:8px;outline:none}
+.gh-row input:focus{border-color:var(--accent)}
+.foot{margin-top:34px;color:var(--ink-faint);font-size:11.5px;font-family:var(--mono);text-align:center;line-height:1.7}
+.status{margin-top:18px;font-family:var(--mono);font-size:12.5px;color:var(--accent);min-height:18px;text-align:center}
+.status.err{color:#ff7b72}
+.spin{display:inline-block;width:11px;height:11px;border:2px solid var(--line2);
+  border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-1px;margin-right:7px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ---------- APP SHELL ---------- */
+#app{display:none;height:100%;grid-template-columns:auto 1fr auto;grid-template-rows:48px 1fr}
+#app.on{display:grid}
+header{grid-column:1/4;display:flex;align-items:center;gap:16px;padding:0 14px;
+  background:var(--panel);border-bottom:1px solid var(--line);z-index:10}
+header .glyph{font-family:var(--mono);font-weight:700;font-size:12px;color:var(--bg);
+  background:var(--accent);padding:3px 7px;border-radius:4px}
+header .repo{font-family:var(--mono);font-size:13px;color:var(--ink)}
+header .repo b{color:var(--accent)}
+header .stat{font-family:var(--mono);font-size:11px;color:var(--ink-faint);
+  border-left:1px solid var(--line);padding-left:16px}
+header .grow{flex:1}
+header .mode-toggle{display:flex;background:var(--bg);border:1px solid var(--line2);
+  border-radius:8px;overflow:hidden}
+header .mode-toggle button{background:none;border:none;color:var(--ink-dim);
+  font-family:var(--mono);font-size:11.5px;padding:6px 14px;display:flex;align-items:center;gap:6px}
+header .mode-toggle button .dot{width:7px;height:7px;border-radius:50%}
+header .mode-toggle button.active{color:var(--ink)}
+header .mode-toggle button[data-mode="calls"].active{background:rgba(77,212,196,.12)}
+header .mode-toggle button[data-mode="refs"].active{background:rgba(232,163,61,.12)}
+header .icon-btn{background:none;border:1px solid var(--line2);color:var(--ink-dim);
+  width:32px;height:30px;border-radius:7px;font-size:14px;display:grid;place-items:center}
+header .icon-btn:hover{border-color:var(--accent);color:var(--ink)}
+
+/* ---------- SIDEBAR (BROWSER) ---------- */
+#side{grid-row:2;width:326px;background:var(--panel);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;min-height:0}
+.side-search{padding:10px;border-bottom:1px solid var(--line)}
+.side-search input{width:100%;background:var(--bg);border:1px solid var(--line2);
+  color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px 10px;border-radius:7px;outline:none}
+.side-search input:focus{border-color:var(--accent)}
+.filter-chips{display:flex;gap:5px;padding:8px 10px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:10.5px;padding:3px 9px;border-radius:20px;
+  border:1px solid var(--line2);color:var(--ink-dim);background:none;transition:.12s;display:flex;align-items:center;gap:5px}
+.chip .sw{width:7px;height:7px;border-radius:2px}
+.chip.on{color:var(--ink);background:var(--bg2)}
+.chip[data-k="function"].on{border-color:var(--fn)}
+.chip[data-k="class"].on{border-color:var(--cls)}
+.chip[data-k="type"].on{border-color:var(--type)}
+.tree{flex:1;overflow-y:auto;padding:6px 0 40px}
+.tnode{font-family:var(--mono);font-size:12px;user-select:none}
+.trow{display:flex;align-items:center;gap:6px;padding:3px 10px;cursor:pointer;
+  white-space:nowrap;border-left:2px solid transparent}
+.trow:hover{background:var(--bg2)}
+.trow.sel{background:rgba(77,212,196,.1);border-left-color:var(--accent)}
+.trow .tw{width:11px;text-align:center;color:var(--ink-faint);font-size:9px;flex:none}
+.trow .ki{width:15px;text-align:center;flex:none;font-weight:700;font-size:10px}
+.trow .nm{overflow:hidden;text-overflow:ellipsis}
+.trow .ln{margin-left:auto;color:var(--ink-faint);font-size:10px;padding-left:8px}
+.ki.file{color:var(--file)} .ki.function{color:var(--fn)}
+.ki.class{color:var(--cls)} .ki.type{color:var(--type)}
+.trow .focusbtn{opacity:0;flex:none;color:var(--ink-faint);font-size:11px;padding:0 4px}
+.trow:hover .focusbtn{opacity:1}
+.trow .focusbtn:hover{color:var(--accent)}
+.tchildren{overflow:hidden}
+.empty-tree{color:var(--ink-faint);font-family:var(--mono);font-size:11.5px;padding:20px;text-align:center}
+
+/* ---------- CENTER (GRAPH) ---------- */
+#center{grid-row:2;position:relative;background:
+  radial-gradient(circle at 1px 1px, var(--grid-dot) 1px, transparent 0) 0 0/22px 22px,
+  var(--bg);min-height:0;overflow:hidden}
+#graph{width:100%;height:100%;display:block}
+.node-g{cursor:pointer}
+.node-g text{font-family:var(--mono);font-size:11px;pointer-events:none;fill:var(--ink)}
+.node-g .sub{font-size:8.5px;fill:var(--ink-faint)}
+.edge{fill:none;stroke-linecap:round}
+.edge-arrow-calls{fill:var(--calls)}
+.edge-arrow-refs{fill:var(--refs)}
+
+/* floating controls */
+.ctl{position:absolute;background:rgba(15,22,32,.92);backdrop-filter:blur(8px);
+  border:1px solid var(--line2);border-radius:12px;box-shadow:var(--shadow)}
+.ctl-label{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:1.5px;
+  color:var(--ink-faint);margin-bottom:9px;display:flex;justify-content:space-between;align-items:center}
+.ctl-label b{color:var(--accent);font-size:13px}
+input[type=range]{-webkit-appearance:none;height:4px;border-radius:3px;
+  background:var(--line2);outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;
+  border-radius:50%;background:var(--accent);cursor:pointer;box-shadow:0 0 0 3px rgba(77,212,196,.2)}
+/* compact depth control in header */
+.depth-inline{display:flex;align-items:center;gap:9px;padding:0 12px;height:30px;
+  background:var(--bg);border:1px solid var(--line2);border-radius:8px}
+.depth-inline .di-label{font-family:var(--mono);font-size:10px;text-transform:uppercase;
+  letter-spacing:1.2px;color:var(--ink-faint)}
+.depth-inline input[type=range]{width:96px}
+.depth-inline .di-val{font-family:var(--mono);font-size:13px;font-weight:700;
+  color:var(--accent);min-width:9px;text-align:center}
+/* forces control panel (graph view) */
+#forcesctl{top:14px;left:14px;width:210px;padding:0;overflow:hidden}
+.fx-head{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line)}
+.fx-title{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:1.5px;
+  color:var(--ink-faint);flex:1}
+.fx-reset{background:none;border:1px solid var(--line2);color:var(--ink-dim);
+  font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;
+  padding:2px 7px;border-radius:5px;cursor:pointer}
+.fx-reset:hover{border-color:var(--accent);color:var(--ink)}
+.fx-toggle{background:none;border:none;color:var(--ink-dim);cursor:pointer;font-size:11px;padding:0 2px}
+.fx-body{padding:10px 12px;display:flex;flex-direction:column;gap:9px;transition:.2s}
+#forcesctl.collapsed .fx-body{display:none}
+#forcesctl.collapsed .fx-toggle{transform:rotate(-90deg)}
+.fx-row{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim)}
+.fx-row span{width:78px;flex:none}
+.fx-row input[type=range]{flex:1;width:auto}
+.fx-row.fx-hl span{color:var(--accent)}
+.fx-row.fx-hl input[type=range]::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(232,163,61,.25);background:var(--refs)}
+
+#focusbar{top:14px;left:50%;transform:translateX(-50%);padding:8px 12px;
+  display:none;align-items:center;gap:10px;max-width:70%}
+#focusbar.on{display:flex}
+#focusbar .fb-lbl{font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:1px}
+#focusbar .fb-name{font-family:var(--mono);font-size:12.5px;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#focusbar .fb-name .ki{margin-right:6px;font-weight:700}
+#focusbar .fb-clear{background:none;border:1px solid var(--line2);color:var(--ink-dim);
+  border-radius:6px;font-size:11px;padding:3px 9px;flex:none}
+#focusbar .fb-clear:hover{border-color:var(--refs);color:var(--ink)}
+
+.legend{position:absolute;bottom:14px;left:14px;font-family:var(--mono);font-size:10.5px;
+  color:var(--ink-dim);display:flex;flex-direction:column;gap:6px;
+  background:rgba(15,22,32,.85);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+.legend .lr{display:flex;align-items:center;gap:8px}
+.legend .lr .sw{width:16px;height:0;border-top:2px solid}
+.legend .lr .dt{width:9px;height:9px;border-radius:50%;flex:none}
+.zoomctl{position:absolute;bottom:14px;right:14px;display:flex;flex-direction:column;gap:6px}
+.zoomctl button{width:32px;height:32px;border-radius:8px;background:rgba(15,22,32,.9);
+  border:1px solid var(--line2);color:var(--ink);font-size:15px;display:grid;place-items:center}
+.zoomctl button:hover{border-color:var(--accent)}
+
+/* detail flyout */
+#detail{position:absolute;top:14px;right:14px;width:290px;max-height:calc(100% - 28px);
+  overflow-y:auto;padding:14px;display:none}
+#detail.on{display:block}
+#detail .dt-kind{font-family:var(--mono);font-size:10px;text-transform:uppercase;
+  letter-spacing:1.5px;margin-bottom:5px}
+#detail .dt-name{font-family:var(--mono);font-size:15px;color:var(--ink);word-break:break-all;margin-bottom:3px}
+#detail .dt-path{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-bottom:14px;word-break:break-all}
+#detail .dt-sec{margin-top:12px}
+#detail .dt-sec h4{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:1px;
+  margin:0 0 7px;display:flex;align-items:center;gap:6px}
+#detail .dt-sec h4 .c{margin-left:auto;color:var(--ink-faint);font-weight:400}
+#detail .dt-item{font-family:var(--mono);font-size:11.5px;padding:4px 8px;border-radius:5px;
+  color:var(--ink-dim);cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden}
+#detail .dt-item:hover{background:var(--bg2);color:var(--ink)}
+#detail .dt-item .ki{font-weight:700;flex:none}
+#detail .dt-item .txt{overflow:hidden;text-overflow:ellipsis}
+#detail .dt-none{font-family:var(--mono);font-size:11px;color:var(--ink-faint);padding:2px 8px}
+.emptygraph{position:absolute;inset:0;display:grid;place-items:center;
+  font-family:var(--mono);color:var(--ink-faint);font-size:13px;text-align:center;padding:40px;line-height:1.7}
+
+/* ---------- CENTER: FLOW (ordered call tree) ---------- */
+#flow{position:absolute;inset:0;overflow:auto;padding:56px 22px 60px 18px}
+.flow-empty{max-width:440px;margin:14vh auto 0;text-align:center;font-family:var(--mono);
+  font-size:12.5px;color:var(--ink-faint);line-height:1.7}
+.flow-wrap{max-width:900px;margin:0 auto}
+.flow-head{display:flex;gap:12px;align-items:center;margin:0 0 14px 4px;
+  font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:1.2px}
+.flow-head .fh-mode{color:var(--accent)}
+.flow-head .fh-depth{color:var(--ink-faint);border-left:1px solid var(--line);padding-left:12px}
+.flow-node{position:relative}
+/* connector spine for nested children */
+.flow-children{margin-left:15px;padding-left:15px;border-left:1px solid var(--line);position:relative}
+.flow-row{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:7px;
+  font-family:var(--mono);font-size:12.5px;cursor:pointer;position:relative;
+  border:1px solid transparent;transition:background .12s}
+.flow-row::before{content:'';position:absolute;left:-15px;top:50%;width:12px;height:1px;
+  background:var(--line)}
+.flow-node > .flow-row.root::before,.flow-wrap > .flow-node > .flow-row::before{display:none}
+.flow-row:hover{background:var(--bg2)}
+.flow-row.sel{background:rgba(77,212,196,.12);border-color:rgba(77,212,196,.4)}
+.flow-row.root{background:linear-gradient(var(--bg2),var(--panel));border-color:var(--line2);
+  font-size:13.5px;margin-bottom:4px;padding:7px 12px}
+.flow-row.root .fl-name{font-weight:700;color:var(--ink)}
+.flow-row .fl-tw{width:13px;flex:none;text-align:center;color:var(--ink-faint);font-size:10px}
+.flow-row .fl-tw:hover{color:var(--accent)}
+.flow-row .ki{flex:none;font-weight:700;font-size:11px}
+.flow-row .fl-name{color:var(--ink);white-space:nowrap}
+.flow-row .fl-qual{color:var(--ink-faint);font-size:10.5px;white-space:nowrap}
+.flow-row .fl-ln{margin-left:auto;color:var(--ink-faint);font-size:10px;
+  background:var(--bg);padding:1px 7px;border-radius:20px;flex:none;border:1px solid var(--line)}
+.flow-row.is-ref .fl-name{font-style:italic;opacity:.85}
+.flow-row .fl-cyc{flex:none;font-size:9px;color:var(--refs);background:rgba(232,163,61,.12);
+  padding:1px 7px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px}
+.flow-row .fl-leaf{flex:none;font-size:9px;color:var(--ink-faint);opacity:.55}
+.flow-row .ki.function{color:var(--fn)} .flow-row .ki.class{color:var(--cls)} .flow-row .ki.type{color:var(--type)}
+
+/* ---------- RIGHT: CODE PANEL ---------- */
+#code{grid-row:2;width:440px;background:var(--panel);border-left:1px solid var(--line);
+  display:flex;flex-direction:column;min-height:0;transition:width .22s ease,opacity .2s}
+#code.collapsed{width:0;opacity:0;overflow:hidden;border-left:none}
+.code-head{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line);flex:none}
+.code-head .ki{font-weight:700;flex:none}
+.code-head .cp-name{font-family:var(--mono);font-size:12px;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.code-head .cp-path{font-family:var(--mono);font-size:10px;color:var(--ink-faint);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:auto;flex:none;max-width:44%}
+.code-head .cp-close{background:none;border:1px solid var(--line2);color:var(--ink-dim);
+  width:26px;height:24px;border-radius:6px;font-size:13px;flex:none;display:grid;place-items:center}
+.code-head .cp-close:hover{border-color:var(--refs);color:var(--ink)}
+.code-scroll{flex:1;overflow:auto;min-height:0}
+.code-body{font-family:var(--mono);font-size:11.5px;line-height:1.55;
+  color:var(--ink-dim);tab-size:4;padding:6px 0 60vh;min-width:max-content}
+.cline{display:flex;white-space:pre;padding:0 14px 0 0}
+.cline .gutter{flex:none;width:46px;text-align:right;padding-right:12px;color:var(--ink-faint);
+  opacity:.6;user-select:none;position:sticky;left:0;background:var(--panel)}
+.cline.hot{background:rgba(77,212,196,.09)}
+.cline.hot .gutter{color:var(--accent);opacity:1}
+.cline.defline{background:rgba(77,212,196,.14)}
+.cline.defline .gutter{color:var(--accent);opacity:1;font-weight:700}
+.cline .src{flex:1}
+.cp-empty{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);
+  padding:24px 16px;line-height:1.7;text-align:center}
+/* toggle button state in header */
+header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(77,212,196,.1)}
+
+/* syntax tints (lightweight) */
+.tok-kw{color:#e8a33d}
+.tok-def{color:#6ea8fe}
+.tok-str{color:#8ddb8c}
+.tok-com{color:var(--ink-faint);font-style:italic}
+.tok-num{color:#c792ea}
+/* clickable, resolved identifiers */
+.tok-link{cursor:pointer;border-bottom:1px dotted currentColor;border-radius:2px;
+  transition:background .12s,color .12s}
+.tok-link:hover{background:rgba(77,212,196,.16);border-bottom-style:solid}
+.tok-link.lk-fn{color:var(--fn)}
+.tok-link.lk-cls{color:var(--cls)}
+.tok-link.lk-type{color:var(--type)}
+</style>
+</head>
+<body>
+
+<!-- ================= LANDING ================= -->
+<div id="landing">
+  <div class="brand"><span class="glyph">{ }</span><h1>schema<b>·</b>map</h1></div>
+  <p class="tag">Map a Python library's call graph. See which functions call what, trace dependencies through <code>N</code> hops, and focus on any file or class.</p>
+
+  <div class="dropzone" id="dropzone">
+    <div class="dz-icon">↥</div>
+    <div class="dz-title">Drop a code archive</div>
+    <div class="dz-sub">Supports <b>.zip</b>, <b>.tar.gz</b>, <b>.tgz</b>, <b>.tar</b> — parsed entirely in your browser</div>
+    <button class="btn primary" id="pickBtn">Choose file</button>
+    <input type="file" id="fileInput" accept=".zip,.tar,.gz,.tgz" hidden>
+    <div class="divider">or from github</div>
+    <div class="gh-row">
+      <input id="ghInput" placeholder="github.com/pallets/click  (or owner/repo)" spellcheck="false">
+      <button class="btn" id="ghBtn">Fetch</button>
+    </div>
+  </div>
+  <div class="status" id="status"></div>
+  <div class="foot">Nothing is uploaded to a server · your code stays in the tab<br>Static heuristic analysis — no code is executed</div>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="app">
+  <header>
+    <span class="glyph">{ }</span>
+    <span class="repo" id="repoName"></span>
+    <span class="stat" id="repoStat"></span>
+    <span class="grow"></span>
+    <div class="depth-inline" title="Dependency / nesting depth">
+      <span class="di-label">Depth</span>
+      <input type="range" id="depth" min="1" max="6" value="2" step="1">
+      <span class="di-val" id="depthVal">2</span>
+    </div>
+    <div class="mode-toggle" id="viewToggle" title="Center display">
+      <button data-view="flow" class="active">⤵ Flow</button>
+      <button data-view="graph">✸ Graph</button>
+    </div>
+    <div class="mode-toggle" id="modeToggle">
+      <button data-mode="calls" class="active"><span class="dot" style="background:var(--calls)"></span>Calls out</button>
+      <button data-mode="refs"><span class="dot" style="background:var(--refs)"></span>Referenced by</button>
+    </div>
+    <button class="icon-btn" id="themeToggle" title="Switch theme">◐</button>
+    <button class="icon-btn" id="codeToggle" title="Toggle source panel">&lt;/&gt;</button>
+    <button class="icon-btn" id="newBtn" title="Load different code">↻</button>
+  </header>
+
+  <!-- LEFT: BROWSER -->
+  <aside id="side">
+    <div class="side-search"><input id="treeSearch" placeholder="Filter symbols…" spellcheck="false"></div>
+    <div class="filter-chips" id="chips">
+      <button class="chip on" data-k="function"><span class="sw" style="background:var(--fn)"></span>func</button>
+      <button class="chip on" data-k="class"><span class="sw" style="background:var(--cls)"></span>class</button>
+      <button class="chip on" data-k="type"><span class="sw" style="background:var(--type)"></span>type</button>
+    </div>
+    <div class="tree" id="tree"></div>
+  </aside>
+
+  <!-- CENTER: FLOW (default) + GRAPH -->
+  <section id="center">
+    <svg id="graph" style="display:none"></svg>
+    <div id="flow"></div>
+
+    <div class="ctl" id="focusbar">
+      <span class="fb-lbl">Focused</span>
+      <span class="fb-name" id="focusName"></span>
+      <button class="fb-clear" id="focusClear">Show all ✕</button>
+    </div>
+
+    <div class="ctl" id="detail">
+      <div class="dt-kind" id="dtKind"></div>
+      <div class="dt-name" id="dtName"></div>
+      <div class="dt-path" id="dtPath"></div>
+      <div class="dt-sec" id="dtCalls"></div>
+      <div class="dt-sec" id="dtRefs"></div>
+    </div>
+
+    <div class="ctl forces" id="forcesctl" style="display:none">
+      <div class="fx-head">
+        <span class="fx-title">Forces</span>
+        <button class="fx-reset" id="fReset" title="Reset to defaults">reset</button>
+        <button class="fx-toggle" id="fToggle" title="Collapse">▾</button>
+      </div>
+      <div class="fx-body" id="fBody">
+        <label class="fx-row"><span>Repulsion</span><input type="range" id="fRepulsion" min="0" max="900" step="10" value="320"></label>
+        <label class="fx-row"><span>Link length</span><input type="range" id="fDistance" min="20" max="260" step="5" value="90"></label>
+        <label class="fx-row"><span>Link pull</span><input type="range" id="fLinkStr" min="0" max="100" step="1" value="50"></label>
+        <label class="fx-row"><span>Gravity</span><input type="range" id="fGravity" min="0" max="100" step="1" value="12"></label>
+        <label class="fx-row fx-hl"><span>Gather isolates</span><input type="range" id="fGather" min="0" max="100" step="1" value="45"></label>
+      </div>
+    </div>
+
+    <div class="legend" id="legend" style="display:none">
+      <div class="lr"><span class="sw" style="border-color:var(--calls)"></span>calls out to</div>
+      <div class="lr"><span class="sw" style="border-color:var(--refs)"></span>referenced by</div>
+      <div class="lr" style="margin-top:2px"><span class="dt" style="background:var(--fn)"></span>func &nbsp;<span class="dt" style="background:var(--cls)"></span>class &nbsp;<span class="dt" style="background:var(--type)"></span>type</div>
+    </div>
+
+    <div class="zoomctl" id="zoomctl" style="display:none">
+      <button id="zin">+</button><button id="zout">−</button><button id="zfit" title="Fit">⊡</button>
+    </div>
+
+    <div class="emptygraph" id="emptyGraph" style="display:none"></div>
+  </section>
+
+  <!-- RIGHT: SOURCE CODE -->
+  <aside id="code" class="collapsed">
+    <div class="code-head">
+      <span class="ki" id="cpKi"></span>
+      <span class="cp-name" id="cpName">Source</span>
+      <span class="cp-path" id="cpPath"></span>
+      <button class="cp-close" id="cpClose" title="Collapse panel">›</button>
+    </div>
+    <div class="code-scroll" id="codeScroll">
+      <div class="cp-empty" id="cpEmpty">Select a symbol to view its source.<br>The panel scrolls to the definition.</div>
+      <div class="code-body" id="codeBody"></div>
+    </div>
+  </aside>
+</div>
+
+<script>
+/* =========================================================================
+   schema·map — client-side Python call-graph cartographer
+   Sections:  (1) ingest  (2) python parser  (3) graph model
+              (4) sidebar browser  (5) graph render  (6) controls
+   ========================================================================= */
+
+const $ = s => document.querySelector(s);
+const el = (t, c) => { const e = document.createElement(t); if (c) e.className = c; return e; };
+const KI = { file: '▤', function: 'ƒ', class: '◇', type: 'τ' };
+
+/* global analysis state */
+let MODEL = null;          // {files:[{path,defs:[...]}], defsById:Map, name}
+let STATE = {
+  view: 'flow',            // 'flow' | 'graph'
+  mode: 'calls',           // 'calls' | 'refs'
+  depth: 2,
+  kinds: new Set(['function', 'class', 'type']),
+  focus: null,             // {type:'symbol'|'file', id}
+  selected: null,          // def id highlighted
+  search: '',
+  // graph force tuning (see FORCE_DEFAULTS)
+  force: null
+};
+const FORCE_DEFAULTS = {
+  repulsion: 320,   // node-node repulsion strength (higher = more spread)
+  distance: 90,     // preferred link length
+  linkStr: 50,      // link stiffness, 0–100 (%)
+  gravity: 12,      // pull of ALL nodes toward center, 0–100
+  gather: 45        // EXTRA pull on isolated (link-less) nodes, 0–100
+};
+
+/* =========================================================================
+   (1) INGEST — zip / tar.gz / tar / github
+   ========================================================================= */
+const status = (msg, err = false) => {
+  const s = $('#status'); s.className = 'status' + (err ? ' err' : '');
+  s.innerHTML = msg;
+};
+const spinner = msg => status(`<span class="spin"></span>${msg}`);
+
+async function handleArchive(name, buf) {
+  try {
+    spinner('Extracting archive…');
+    let files;
+    const low = name.toLowerCase();
+    if (low.endsWith('.zip')) files = await readZip(buf);
+    else if (low.endsWith('.tar.gz') || low.endsWith('.tgz')) files = readTar(pako.ungzip(new Uint8Array(buf)));
+    else if (low.endsWith('.gz')) files = readTar(pako.ungzip(new Uint8Array(buf)));
+    else if (low.endsWith('.tar')) files = readTar(new Uint8Array(buf));
+    else throw new Error('Unsupported archive type');
+
+    const py = files.filter(f => f.path.endsWith('.py') && !f.path.includes('/.'));
+    if (!py.length) throw new Error('No .py files found in archive');
+    spinner(`Analysing ${py.length} Python files…`);
+    await new Promise(r => setTimeout(r, 30));
+    const repo = name.replace(/\.(zip|tar\.gz|tgz|tar|gz)$/i, '');
+    buildAndLaunch(repo, py);
+  } catch (e) {
+    status('✕ ' + e.message, true);
+  }
+}
+
+async function readZip(buf) {
+  const zip = await JSZip.loadAsync(buf);
+  const out = [];
+  const entries = Object.values(zip.files).filter(f => !f.dir && f.name.endsWith('.py'));
+  for (const f of entries) out.push({ path: f.name, text: await f.async('string') });
+  return out;
+}
+
+/* minimal ustar reader */
+function readTar(bytes) {
+  const out = []; const dec = new TextDecoder(); let off = 0;
+  const str = (o, l) => dec.decode(bytes.subarray(o, o + l)).replace(/\0.*$/, '').trim();
+  while (off + 512 <= bytes.length) {
+    const name = str(off, 100);
+    if (!name) { off += 512; if (allZero(bytes, off - 512)) break; continue; }
+    const sizeStr = str(off + 124, 12);
+    const size = parseInt(sizeStr, 8) || 0;
+    const type = String.fromCharCode(bytes[off + 156]);
+    let full = name;
+    const prefix = str(off + 345, 155);
+    if (prefix) full = prefix + '/' + name;
+    off += 512;
+    if ((type === '0' || type === '\0' || type === '') && full.endsWith('.py')) {
+      out.push({ path: full, text: dec.decode(bytes.subarray(off, off + size)) });
+    }
+    off += Math.ceil(size / 512) * 512;
+  }
+  return out;
+}
+const allZero = (b, o) => { for (let i = o; i < o + 512 && i < b.length; i++) if (b[i] !== 0) return false; return true; };
+
+async function fetchGithub(raw) {
+  let m = raw.trim().replace(/^https?:\/\//, '').replace(/^github\.com\//, '').replace(/\.git$/, '').replace(/\/$/, '');
+  const parts = m.split('/');
+  if (parts.length < 2) throw new Error('Use owner/repo or a github.com URL');
+  const [owner, repo] = parts;
+  spinner('Resolving default branch…');
+  let branch = 'main';
+  try {
+    const meta = await fetch(`https://api.github.com/repos/${owner}/${repo}`).then(r => r.json());
+    if (meta && meta.default_branch) branch = meta.default_branch;
+    else if (meta && meta.message) throw new Error(meta.message);
+  } catch (e) { /* fall through, try main */ }
+  spinner(`Downloading ${owner}/${repo} @ ${branch}…`);
+  const url = `https://codeload.github.com/${owner}/${repo}/tar.gz/refs/heads/${branch}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`GitHub fetch failed (${res.status})`);
+  const buf = await res.arrayBuffer();
+  await handleArchive(`${repo}.tar.gz`, buf);
+}
+
+/* =========================================================================
+   (2) PYTHON PARSER  (heuristic, string/comment/docstring aware)
+   ========================================================================= */
+function stripInline(line) {
+  let out = '', i = 0, q = null;
+  while (i < line.length) {
+    const c = line[i];
+    if (q) { if (c === '\\') { out += '  '; i += 2; continue; } if (c === q) { q = null; out += ' '; i++; continue; } out += ' '; i++; continue; }
+    if (c === '#') break;
+    if (c === '"' || c === "'") { q = c; out += ' '; i++; continue; }
+    out += c; i++;
+  }
+  return out;
+}
+/* returns per-line "code only" (docstrings + strings + comments blanked) */
+function scrub(src) {
+  const lines = src.split('\n'); const out = []; let triple = null;
+  for (let raw of lines) {
+    let line = raw;
+    if (triple) {
+      const idx = line.indexOf(triple);
+      if (idx === -1) { out.push(''); continue; }
+      line = ' '.repeat(idx + 3) + line.slice(idx + 3); triple = null;
+    }
+    let i = 0, res = '';
+    while (i < line.length) {
+      const t = line.slice(i, i + 3);
+      if (t === '"""' || t === "'''") {
+        const close = line.indexOf(t, i + 3);
+        if (close === -1) { res += line.slice(0, i); triple = t; line = res; i = line.length; break; }
+        line = line.slice(0, i) + ' '.repeat(close + 3 - i) + line.slice(close + 3); i = close + 3; continue;
+      }
+      i++;
+    }
+    out.push(stripInline(line));
+  }
+  return out;
+}
+
+const RESERVED = new Set(['if', 'for', 'while', 'return', 'print', 'with', 'and', 'or', 'not', 'in',
+  'is', 'else', 'elif', 'try', 'except', 'finally', 'lambda', 'yield', 'assert', 'raise', 'del',
+  'import', 'from', 'as', 'pass', 'break', 'continue', 'global', 'nonlocal', 'def', 'class',
+  'True', 'False', 'None', 'self', 'cls', 'super', 'range', 'len', 'int', 'str', 'float', 'bool',
+  'list', 'dict', 'set', 'tuple', 'type', 'isinstance', 'enumerate', 'zip', 'map', 'filter',
+  'open', 'input', 'format', 'sorted', 'reversed', 'sum', 'min', 'max', 'abs', 'any', 'all',
+  'getattr', 'setattr', 'hasattr', 'property', 'staticmethod', 'classmethod']);
+
+function parseFile(path, src) {
+  const lines = src.split('\n');
+  const code = scrub(src);
+  const defs = []; const stack = [];
+  const defRe = /^(\s*)(async\s+def|def|class)\s+([A-Za-z_]\w*)/;
+  const typeRe = /^([A-Za-z_]\w*)\s*(?::\s*TypeAlias)?\s*=\s*(.+)$/;
+
+  for (let i = 0; i < lines.length; i++) {
+    const c = code[i];
+    if (c.trim() === '') continue;
+    const m = c.match(defRe);
+    if (m) {
+      const indent = m[1].length;
+      while (stack.length && indent <= stack[stack.length - 1].indent) stack.pop();
+      const parent = stack.length ? stack[stack.length - 1] : null;
+      const kind = m[2] === 'class' ? 'class' : 'function';
+      const qual = (parent ? parent.qual + '.' : '') + m[3];
+      // body start = after multiline signature colon
+      let bs = i, sig = c;
+      while (bs < lines.length && !/:\s*$/.test(sig.replace(/\s+$/, ''))) { bs++; sig = code[bs] || ':'; }
+      bs += 1;
+      const d = { id: path + '::' + qual, name: m[3], kind, qual, path, line: i + 1,
+        bodyStart: bs, end: lines.length, indent, parent: parent ? parent.id : null,
+        children: [], calls: new Set(), refBy: new Set(), callSites: [] };
+      if (parent) parent.children.push(d.id);
+      defs.push(d); stack.push(d);
+    } else if (indentOf(c) === 0) {
+      // module-level type alias / assignment used as "defined type"
+      const tm = c.trim().match(typeRe);
+      if (tm && !RESERVED.has(tm[1])) {
+        const rhs = tm[2];
+        const looksType = /TypeAlias|Union|Optional|List|Dict|Tuple|Callable|NewType|TypeVar|\[|\|/.test(rhs)
+          || /^[A-Z]/.test(tm[1]);
+        if (looksType && /[A-Za-z_]\w*\s*[\[|]|NewType|TypeVar|TypeAlias/.test(rhs) || /TypeVar|NewType|TypeAlias/.test(rhs)) {
+          const id = path + '::' + tm[1];
+          if (!defs.some(d => d.id === id))
+            defs.push({ id, name: tm[1], kind: 'type', qual: tm[1], path, line: i + 1,
+              bodyStart: i + 1, end: i + 1, indent: 0, parent: null, children: [],
+              calls: new Set(), refBy: new Set(), callSites: [] });
+        }
+      }
+    }
+  }
+  // compute body end lines for def/class
+  for (const d of defs) {
+    if (d.kind === 'type') continue;
+    for (let j = d.bodyStart; j < lines.length; j++) {
+      if (code[j].trim() === '') continue;
+      if (indentOf(code[j]) <= d.indent) { d.end = j; break; }
+    }
+  }
+  return { path, defs, code, lines };
+}
+const indentOf = s => (s.match(/^(\s*)/)[1] || '').length;
+
+/* =========================================================================
+   (3) GRAPH MODEL — resolve call sites to defs across the project
+   ========================================================================= */
+function analyse(repo, pyFiles) {
+  const files = pyFiles.map(f => parseFile(f.path, f.text));
+  const defsById = new Map();
+  const byName = new Map();   // simple name -> [def]
+  for (const f of files) for (const d of f.defs) {
+    defsById.set(d.id, d);
+    if (!byName.has(d.name)) byName.set(d.name, []);
+    byName.get(d.name).push(d);
+  }
+
+  // resolve calls & references inside each def body
+  const callTokenRe = /([A-Za-z_]\w*)\s*\(/g;                       // callables
+  const refTokenRe = /(?<![.\w])([A-Za-z_]\w*)(?![\w(])/g;          // bare name references (types etc.)
+
+  for (const f of files) {
+    for (const d of f.defs) {
+      if (d.kind === 'type') continue;
+      const resolve = nm => {
+        const cands = byName.get(nm); if (!cands) return null;
+        const same = cands.find(c => c.path === d.path && c.id !== d.id);
+        if (same) return same.id;
+        const uniq = cands.filter(c => c.id !== d.id);
+        if (uniq.length === 1) return uniq[0].id;
+        return uniq.length ? uniq[0].id : null;
+      };
+      // lines occupied by nested child defs — attribute those to the child, not here
+      const childSpans = f.defs
+        .filter(c => c.parent === d.id)
+        .map(c => [c.line, c.end]);
+      const inChild = ln => childSpans.some(([a, b]) => ln >= a && ln < b);
+
+      const seenCall = new Set();
+      const firstAt = new Map();   // targetId -> {line, name, viaCall}
+      for (let j = d.bodyStart - 1; j < d.end; j++) {
+        const ln = j + 1;
+        if (inChild(ln)) continue;
+        const line = f.code[j]; if (!line) continue;
+        let m;
+        callTokenRe.lastIndex = 0;
+        while ((m = callTokenRe.exec(line))) {
+          const nm = m[1];
+          if (RESERVED.has(nm)) continue;
+          seenCall.add(nm);
+          const id = resolve(nm);
+          if (id && id !== d.id && !firstAt.has(id)) firstAt.set(id, { line: ln, name: nm, viaCall: true });
+        }
+        refTokenRe.lastIndex = 0;
+        while ((m = refTokenRe.exec(line))) {
+          const nm = m[1];
+          if (RESERVED.has(nm)) continue;
+          if (seenCall.has(nm)) continue;
+          if (nm.length <= 2 && /^[A-Z]+$/.test(nm)) continue;  // TypeVar noise
+          const id = resolve(nm);
+          if (id && id !== d.id && !firstAt.has(id)) firstAt.set(id, { line: ln, name: nm, viaCall: false });
+        }
+      }
+      // ordered call sites (source order), plus the unordered set the graph uses
+      d.callSites = [...firstAt.entries()]
+        .map(([id, info]) => ({ id, ...info }))
+        .sort((a, b) => a.line - b.line);
+      for (const cs of d.callSites) d.calls.add(cs.id);
+    }
+  }
+  // build reverse edges
+  for (const d of defsById.values())
+    for (const t of d.calls) { const td = defsById.get(t); if (td) td.refBy.add(d.id); }
+
+  const fileByPath = new Map(files.map(f => [f.path, f]));
+  return { name: repo, files, defsById, fileByPath, byName };
+}
+
+function buildAndLaunch(repo, pyFiles) {
+  MODEL = analyse(repo, pyFiles);
+  const nDefs = MODEL.defsById.size;
+  const nEdges = [...MODEL.defsById.values()].reduce((a, d) => a + d.calls.size, 0);
+  $('#repoName').innerHTML = `<b>${repo}</b>`;
+  $('#repoStat').textContent = `${MODEL.files.length} files · ${nDefs} symbols · ${nEdges} edges`;
+  $('#landing').style.display = 'none';
+  $('#app').classList.add('on');
+  STATE = { view: 'flow', mode: 'calls', depth: 2, kinds: new Set(['function', 'class', 'type']), focus: null, selected: null, search: '', force: { ...FORCE_DEFAULTS } };
+  syncForceSliders();
+  codeState = { path: null };
+  syncViewToggle();
+  $('#depth').value = STATE.depth; $('#depthVal').textContent = STATE.depth;
+  renderTree();
+  renderCenter();
+}
+
+/* =========================================================================
+   (4) SIDEBAR BROWSER
+   ========================================================================= */
+function renderTree() {
+  const tree = $('#tree'); tree.innerHTML = '';
+  const q = STATE.search.toLowerCase();
+  let any = false;
+
+  for (const f of MODEL.files) {
+    const topDefs = f.defs.filter(d => !d.parent && passKind(d));
+    // apply search: file passes if path matches or any descendant matches
+    const matchDef = d => !q || d.qual.toLowerCase().includes(q) || d.name.toLowerCase().includes(q);
+    const fileMatches = !q || f.path.toLowerCase().includes(q) || f.defs.some(matchDef);
+    if (!fileMatches || (!topDefs.length && q && !f.path.toLowerCase().includes(q))) continue;
+
+    const node = el('div', 'tnode');
+    const row = el('div', 'trow');
+    row.dataset.file = f.path;
+    const shortPath = f.path.split('/').slice(-2).join('/');
+    row.innerHTML = `<span class="tw">▾</span><span class="ki file">${KI.file}</span>
+      <span class="nm" title="${f.path}">${shortPath}</span>
+      <span class="focusbtn" title="Focus this file">◎</span>`;
+    const kids = el('div', 'tchildren');
+    node.appendChild(row); node.appendChild(kids);
+
+    const tw = row.querySelector('.tw');
+    row.addEventListener('click', e => {
+      if (e.target.classList.contains('focusbtn')) { setFocus('file', f.path); return; }
+      const open = kids.style.display !== 'none';
+      kids.style.display = open ? 'none' : '';
+      tw.textContent = open ? '▸' : '▾';
+    });
+    row.querySelector('.focusbtn').addEventListener('click', e => { e.stopPropagation(); setFocus('file', f.path); });
+
+    topDefs.forEach(d => buildDefRow(d, kids, 1, matchDef));
+    if (STATE.focus && STATE.focus.type === 'file' && STATE.focus.id === f.path) row.classList.add('sel');
+    tree.appendChild(node); any = true;
+  }
+  if (!any) tree.innerHTML = '<div class="empty-tree">No symbols match your filters.</div>';
+}
+
+function passKind(d) { return STATE.kinds.has(d.kind); }
+
+function buildDefRow(d, container, depth, matchDef) {
+  if (!passKind(d) && !d.children.some(c => passKind(MODEL.defsById.get(c)))) return;
+  const kids = d.children.map(c => MODEL.defsById.get(c)).filter(Boolean);
+  const row = el('div', 'trow');
+  row.style.paddingLeft = (10 + depth * 15) + 'px';
+  row.dataset.id = d.id;
+  const hasKids = kids.length > 0;
+  row.innerHTML =
+    `<span class="tw">${hasKids ? '▾' : ''}</span>
+     <span class="ki ${d.kind}">${KI[d.kind]}</span>
+     <span class="nm" title="${d.qual}">${d.name}</span>
+     <span class="ln">${d.line}</span>
+     <span class="focusbtn" title="Focus / entry point">◎</span>`;
+  const childBox = el('div', 'tchildren');
+
+  row.addEventListener('click', e => {
+    if (e.target.classList.contains('focusbtn')) return;
+    if (e.target.classList.contains('tw') && hasKids) {
+      const open = childBox.style.display !== 'none';
+      childBox.style.display = open ? 'none' : '';
+      e.target.textContent = open ? '▸' : '▾';
+      return;
+    }
+    selectDef(d.id, true);
+  });
+  row.querySelector('.focusbtn').addEventListener('click', e => { e.stopPropagation(); setFocus('symbol', d.id); });
+
+  if (STATE.selected === d.id) row.classList.add('sel');
+  container.appendChild(row);
+  if (hasKids) { container.appendChild(childBox); kids.forEach(c => buildDefRow(c, childBox, depth + 1, matchDef)); }
+}
+
+/* =========================================================================
+   (5) GRAPH RENDER (d3 force)
+   ========================================================================= */
+const svg = d3.select('#graph');
+let gRoot = svg.append('g');
+let zoom = d3.zoom().scaleExtent([0.15, 4]).on('zoom', e => gRoot.attr('transform', e.transform));
+svg.call(zoom);
+let sim = null;
+
+/* choose which defs+edges to show given state */
+function computeVisible() {
+  const D = MODEL.defsById;
+  const dir = STATE.mode === 'calls' ? 'calls' : 'refBy';
+  let roots;
+
+  if (STATE.focus && STATE.focus.type === 'file') {
+    roots = [...D.values()].filter(d => d.path === STATE.focus.id && passKind(d) && !d.parent);
+    if (!roots.length) roots = [...D.values()].filter(d => d.path === STATE.focus.id && passKind(d));
+  } else if (STATE.selected) {
+    roots = [D.get(STATE.selected)].filter(Boolean);
+  } else if (STATE.focus && STATE.focus.type === 'symbol') {
+    roots = [D.get(STATE.focus.id)].filter(Boolean);
+  } else {
+    // overview: all passing defs, edges among them, depth ignored (show 1 hop of structure)
+    const nodes = [...D.values()].filter(passKind);
+    const set = new Set(nodes.map(n => n.id));
+    const links = [];
+    for (const n of nodes) for (const t of n.calls) if (set.has(t)) links.push({ source: n.id, target: t, kind: 'calls' });
+    return { nodes, links, rootIds: new Set() };
+  }
+
+  // BFS out to depth
+  const visited = new Map();   // id -> hop
+  const links = [];
+  const rootIds = new Set(roots.map(r => r.id));
+  let frontier = roots.map(r => r.id);
+  roots.forEach(r => visited.set(r.id, 0));
+  for (let hop = 0; hop < STATE.depth; hop++) {
+    const next = [];
+    for (const id of frontier) {
+      const d = D.get(id); if (!d) continue;
+      for (const t of d[dir]) {
+        const td = D.get(t); if (!td) continue;
+        // edge direction always drawn caller->callee for clarity
+        if (dir === 'calls') links.push({ source: id, target: t, kind: 'calls' });
+        else links.push({ source: t, target: id, kind: 'refs' });
+        if (!visited.has(t)) { visited.set(t, hop + 1); next.push(t); }
+      }
+    }
+    frontier = next;
+    if (!frontier.length) break;
+  }
+  const nodes = [...visited.keys()].map(id => D.get(id)).filter(Boolean);
+  // dedupe links
+  const seen = new Set(); const ulinks = [];
+  for (const l of links) { const k = l.source + '>' + l.target; if (!seen.has(k)) { seen.add(k); ulinks.push(l); } }
+  return { nodes, links: ulinks, rootIds };
+}
+
+/* =========================================================================
+   (5) CENTER DISPATCH — Flow (ordered tree) | Graph (topology)
+   ========================================================================= */
+function renderCenter() {
+  const flowOn = STATE.view === 'flow';
+  $('#graph').style.display = flowOn ? 'none' : 'block';
+  $('#flow').style.display = flowOn ? 'block' : 'none';
+  // depth/mode/legend chrome that only makes sense for one view
+  $('#legend').style.display = flowOn ? 'none' : 'flex';
+  $('#zoomctl').style.display = flowOn ? 'none' : 'flex';
+  $('#forcesctl').style.display = flowOn ? 'none' : 'block';
+  if (flowOn) renderFlow(); else renderGraph();
+}
+function syncViewToggle() {
+  document.querySelectorAll('#viewToggle button').forEach(b =>
+    b.classList.toggle('active', b.dataset.view === STATE.view));
+}
+
+/* ---------- FLOW: ordered, nested call tree of the selected symbol ---------- */
+function renderFlow() {
+  const host = $('#flow');
+  const rootId = STATE.selected || (STATE.focus && STATE.focus.type === 'symbol' ? STATE.focus.id : null);
+  const dir = STATE.mode === 'calls' ? 'callSites' : 'refBy';
+
+  if (!rootId) {
+    // file focus → show each top-level symbol of that file as a mini-forest
+    if (STATE.focus && STATE.focus.type === 'file') {
+      const roots = [...MODEL.defsById.values()]
+        .filter(d => d.path === STATE.focus.id && !d.parent && passKind(d))
+        .sort((a, b) => a.line - b.line);
+      if (roots.length) { renderFlowForest(host, roots, dir); return; }
+    }
+    host.innerHTML = `<div class="flow-empty">Select a function, class, or type to trace its ${STATE.mode === 'calls' ? 'call flow' : 'callers'} in source order.<br><br>The tree follows the order calls appear in the code, and nests by dependency depth.</div>`;
+    return;
+  }
+  renderFlowForest(host, [MODEL.defsById.get(rootId)].filter(Boolean), dir);
+}
+
+function renderFlowForest(host, roots, dir) {
+  const wrap = el('div', 'flow-wrap');
+  const header = el('div', 'flow-head');
+  header.innerHTML = `<span class="fh-mode">${STATE.mode === 'calls' ? '↓ calls, in source order' : '↑ referenced by'}</span>
+    <span class="fh-depth">depth ${STATE.depth}</span>`;
+  wrap.appendChild(header);
+
+  for (const root of roots) {
+    const onPath = new Set();
+    wrap.appendChild(buildFlowNode(root, dir, 0, onPath, true));
+  }
+  host.replaceChildren(wrap);
+}
+
+/* one row + recursive children */
+function buildFlowNode(d, dir, depth, onPath, isRoot) {
+  const node = el('div', 'flow-node');
+  const row = el('div', 'flow-row' + (isRoot ? ' root' : ''));
+  row.dataset.id = d.id;
+  if (d.id === STATE.selected && !isRoot) row.classList.add('sel');
+
+  // gather ordered children
+  let kids = [];
+  const recursive = onPath.has(d.id);
+  if (!recursive && depth < STATE.depth) {
+    if (dir === 'callSites') {
+      kids = (d.callSites || []).map(cs => ({ def: MODEL.defsById.get(cs.id), line: cs.line, viaCall: cs.viaCall }))
+        .filter(k => k.def && passKind(k.def));
+    } else {
+      kids = [...d.refBy].map(id => MODEL.defsById.get(id)).filter(Boolean)
+        .filter(passKind).sort((a, b) => a.line - b.line)
+        .map(def => ({ def, line: def.line, viaCall: true }));
+    }
+  }
+  const hasKids = kids.length > 0;
+  const willRecurse = recursive && (dir === 'callSites' ? (d.callSites || []).length : d.refBy.size);
+
+  const twig = hasKids ? '▾' : (willRecurse ? '↻' : '·');
+  const lineTag = `<span class="fl-ln">${d.path.split('/').pop()}:${d.line}</span>`;
+  row.innerHTML =
+    `<span class="fl-tw">${twig}</span>` +
+    `<span class="ki ${d.kind}">${KI[d.kind]}</span>` +
+    `<span class="fl-name">${d.name}</span>` +
+    (d.qual.includes('.') ? `<span class="fl-qual">${d.qual.split('.').slice(0, -1).join('.')}</span>` : '') +
+    lineTag +
+    (willRecurse ? '<span class="fl-cyc">recursion</span>' : '') +
+    (!hasKids && !willRecurse && !isRoot ? '<span class="fl-leaf">leaf</span>' : '');
+
+  node.appendChild(row);
+
+  const childBox = el('div', 'flow-children');
+  if (hasKids) {
+    onPath.add(d.id);
+    for (const k of kids) {
+      const childNode = buildFlowNode(k.def, dir, depth + 1, onPath, false);
+      // annotate the call-site line on the connector
+      if (k.viaCall === false) childNode.querySelector('.flow-row').classList.add('is-ref');
+      childBox.appendChild(childNode);
+    }
+    onPath.delete(d.id);
+  }
+  node.appendChild(childBox);
+
+  // interactions
+  const tw = row.querySelector('.fl-tw');
+  row.addEventListener('click', e => {
+    if (e.target === tw && hasKids) {
+      const open = childBox.style.display !== 'none';
+      childBox.style.display = open ? 'none' : '';
+      tw.textContent = open ? '▸' : '▾';
+      return;
+    }
+    selectDef(d.id, true);
+  });
+  return node;
+}
+
+/* ---------- force helpers (read from STATE.force so sliders can retune live) ---------- */
+function forceLinkDistance(l) {
+  const nameLen = (l.source.name ? l.source.name.length : 0) + (l.target.name ? l.target.name.length : 0);
+  return STATE.force.distance + nameLen * 1.3;
+}
+function forceGravityFor(n, isIsolate) {
+  const base = STATE.force.gravity / 100 * 0.4;      // 0–0.4 for connected nodes
+  if (isIsolate(n)) return base + STATE.force.gather / 100 * 0.9;  // isolates pulled harder
+  return base;
+}
+/* retune the running simulation without rebuilding the graph */
+function updateForces() {
+  if (!sim) return;
+  const iso = sim._isolate || (() => false);
+  sim.force('charge').strength(() => -STATE.force.repulsion);
+  sim.force('link').distance(l => forceLinkDistance(l)).strength(() => STATE.force.linkStr / 100);
+  sim.force('x').strength(n => forceGravityFor(n, iso));
+  sim.force('y').strength(n => forceGravityFor(n, iso));
+  sim.alpha(0.5).restart();
+}
+function syncForceSliders() {
+  if (!STATE.force) return;
+  const map = { repulsion: 'fRepulsion', distance: 'fDistance', linkStr: 'fLinkStr', gravity: 'fGravity', gather: 'fGather' };
+  for (const k in map) {
+    const inp = document.getElementById(map[k]);
+    if (inp) inp.value = STATE.force[k];
+  }
+}
+
+function renderGraph() {
+  const { nodes, links, rootIds } = computeVisible();
+  const empty = $('#emptyGraph');
+  if (!nodes.length) {
+    gRoot.selectAll('*').remove();
+    empty.style.display = 'grid';
+    empty.innerHTML = STATE.selected || STATE.focus
+      ? 'No dependencies at this depth.<br>Try increasing depth or switching mode.'
+      : 'Select a symbol from the browser,<br>or explore the full map.';
+    return;
+  }
+  empty.style.display = 'none';
+
+  const W = $('#center').clientWidth, H = $('#center').clientHeight;
+  gRoot.selectAll('*').remove();
+
+  // arrow markers
+  const defs = gRoot.append('defs');
+  for (const k of ['calls', 'refs']) {
+    defs.append('marker').attr('id', 'arw-' + k).attr('viewBox', '0 -5 10 10')
+      .attr('refX', 20).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6)
+      .attr('orient', 'auto').append('path').attr('d', 'M0,-4L9,0L0,4')
+      .attr('class', 'edge-arrow-' + k);
+  }
+  const edgeColor = STATE.mode === 'calls' ? 'var(--calls)' : 'var(--refs)';
+
+  const link = gRoot.append('g').selectAll('path').data(links).join('path')
+    .attr('class', 'edge')
+    .style('stroke', edgeColor)
+    .attr('stroke-width', 1.3)
+    .attr('stroke-opacity', .45)
+    .attr('marker-end', `url(#arw-${STATE.mode})`);
+
+  const nodeColor = d => ({ function: 'var(--fn)', class: 'var(--cls)', type: 'var(--type)' }[d.kind] || 'var(--file)');
+
+  const node = gRoot.append('g').selectAll('g').data(nodes, d => d.id).join('g')
+    .attr('class', 'node-g')
+    .call(d3.drag()
+      .on('start', (e, d) => { if (!e.active) sim.alphaTarget(.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on('end', (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+  node.each(function (d) {
+    const g = d3.select(this);
+    const isRoot = rootIds.has(d.id);
+    const isSel = d.id === STATE.selected;
+    const r = isRoot ? 9 : 6.5;
+    g.append('circle').attr('r', r)
+      .style('fill', 'var(--bg2)')
+      .style('stroke', nodeColor(d))
+      .attr('stroke-width', isRoot || isSel ? 2.4 : 1.6);
+    g.append('circle').attr('r', r - 3.2).style('fill', nodeColor(d))
+      .attr('opacity', isRoot ? .9 : .55);
+    const label = g.append('text').attr('x', r + 5).attr('y', 3.5)
+      .attr('font-weight', isRoot ? 700 : 400)
+      .style('fill', isRoot ? 'var(--ink)' : 'var(--ink-dim)')
+      .text(d.name.length > 26 ? d.name.slice(0, 24) + '…' : d.name);
+    // file suffix for cross-file clarity when focused/selected
+    if ((STATE.selected || STATE.focus) && d.path) {
+      g.append('text').attr('x', r + 5).attr('y', 13).attr('class', 'sub')
+        .text(d.path.split('/').pop());
+    }
+  });
+
+  node.on('click', (e, d) => { e.stopPropagation(); selectDef(d.id, true); });
+  node.on('mouseenter', function () { d3.select(this).select('text').style('fill', 'var(--ink)'); });
+  node.append('title').text(d => `${d.qual}\n${d.path}:${d.line}`);
+
+  svg.on('click', () => { /* click bg keeps selection */ });
+
+  // node degree — isolates (degree 0) get gathered toward center so they don't drift away
+  const degree = new Map(nodes.map(n => [n.id, 0]));
+  for (const l of links) {
+    const s = l.source.id || l.source, t = l.target.id || l.target;
+    degree.set(s, (degree.get(s) || 0) + 1);
+    degree.set(t, (degree.get(t) || 0) + 1);
+  }
+  const isIsolate = n => (degree.get(n.id) || 0) === 0;
+
+  const cx = W / 2, cy = H / 2;
+  sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id)
+      .distance(l => forceLinkDistance(l))
+      .strength(() => STATE.force.linkStr / 100))
+    .force('charge', d3.forceManyBody().strength(() => -STATE.force.repulsion))
+    .force('collide', d3.forceCollide().radius(d => 14 + d.name.length * 3))
+    // gravity toward center for everyone; isolates get a much stronger pull
+    .force('x', d3.forceX(cx).strength(n => forceGravityFor(n, isIsolate)))
+    .force('y', d3.forceY(cy).strength(n => forceGravityFor(n, isIsolate)))
+    .on('tick', () => {
+      link.attr('d', d => {
+        const dx = d.target.x - d.source.x, dy = d.target.y - d.source.y;
+        const dr = Math.hypot(dx, dy) * 2.2;
+        return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+      });
+      node.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+  sim._isolate = isIsolate;   // stash for live updates
+
+  // fit after settle
+  clearTimeout(renderGraph._t);
+  renderGraph._t = setTimeout(fitView, nodes.length > 80 ? 900 : 550);
+}
+
+function fitView() {
+  const nodes = gRoot.selectAll('.node-g').data();
+  if (!nodes.length) return;
+  const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const W = $('#center').clientWidth, H = $('#center').clientHeight;
+  const bw = (maxX - minX) || 1, bh = (maxY - minY) || 1;
+  const pad = 90;
+  const scale = Math.min(2.2, Math.max(.2, Math.min((W - pad * 2) / bw, (H - pad * 2) / bh)));
+  const tx = W / 2 - scale * (minX + maxX) / 2;
+  const ty = H / 2 - scale * (minY + maxY) / 2;
+  svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+}
+
+/* =========================================================================
+   (6) SELECTION / FOCUS / DETAIL
+   ========================================================================= */
+function selectDef(id, scroll) {
+  STATE.selected = id;
+  if (STATE.focus && STATE.focus.type === 'symbol') STATE.focus = { type: 'symbol', id }; // keep in sync
+  renderTree();
+  renderCenter();
+  renderDetail(id);
+  showCode(id);
+  if (scroll) {
+    const r = $(`.trow[data-id="${cssEsc(id)}"]`);
+    if (r) r.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function setFocus(type, id) {
+  if (STATE.focus && STATE.focus.type === type && STATE.focus.id === id) { STATE.focus = null; }
+  else STATE.focus = { type, id };
+  if (type === 'symbol') STATE.selected = id;
+  const fb = $('#focusbar');
+  if (STATE.focus) {
+    fb.classList.add('on');
+    if (type === 'file') {
+      $('#focusName').innerHTML = `<span class="ki" style="color:var(--file)">${KI.file}</span>${id}`;
+    } else {
+      const d = MODEL.defsById.get(id);
+      $('#focusName').innerHTML = `<span class="ki" style="color:${kindColor(d.kind)}">${KI[d.kind]}</span>${d.qual}`;
+    }
+  } else fb.classList.remove('on');
+  renderTree(); renderCenter();
+  if (type === 'symbol') renderDetail(id);
+}
+
+function renderDetail(id) {
+  const d = MODEL.defsById.get(id);
+  const box = $('#detail');
+  if (!d) { box.classList.remove('on'); return; }
+  box.classList.add('on');
+  $('#dtKind').textContent = d.kind;
+  $('#dtKind').style.color = kindColor(d.kind);
+  $('#dtName').textContent = d.qual;
+  $('#dtPath').textContent = `${d.path}:${d.line}`;
+
+  const list = (title, ids, color) => {
+    const arr = [...ids].map(x => MODEL.defsById.get(x)).filter(Boolean);
+    let html = `<h4><span style="color:${color}">${title}</span><span class="c">${arr.length}</span></h4>`;
+    if (!arr.length) html += `<div class="dt-none">none</div>`;
+    else html += arr.map(x =>
+      `<div class="dt-item" data-goto="${x.id}"><span class="ki" style="color:${kindColor(x.kind)}">${KI[x.kind]}</span><span class="txt" title="${x.qual} · ${x.path}">${x.qual}</span></div>`
+    ).join('');
+    return html;
+  };
+  $('#dtCalls').innerHTML = list('Calls / uses', d.calls, 'var(--calls)');
+  $('#dtRefs').innerHTML = list('Referenced by', d.refBy, 'var(--refs)');
+  box.querySelectorAll('[data-goto]').forEach(it =>
+    it.addEventListener('click', () => selectDef(it.dataset.goto, true)));
+}
+
+/* ---------- CODE PANEL ---------- */
+let codeCollapsedByUser = true;  // panel starts collapsed until a symbol is picked
+
+const escHtml = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const PY_KW = /\b(def|class|return|if|elif|else|for|while|try|except|finally|with|as|import|from|raise|yield|lambda|async|await|pass|break|continue|global|nonlocal|assert|del|in|is|not|and|or|None|True|False|self|cls)\b/g;
+
+/* highlight one already-escaped line; `resolve(name)` -> def id | null */
+function hlLine(esc, resolve) {
+  let rest = esc;
+  // pull trailing comment (computed on escaped text; positions still align since #,& map safely)
+  const hashIdx = findComment(rest);
+  let comment = '';
+  if (hashIdx !== -1) { comment = rest.slice(hashIdx); rest = rest.slice(0, hashIdx); }
+  // strings
+  rest = rest.replace(/(&quot;|&#39;|'|")(.*?)(\1)/g, (m) => `<span class="tok-str">${m}</span>`);
+  // helper: are we currently inside an open <span> at this offset?
+  const insideSpan = (whole, off) => {
+    const before = whole.slice(0, off);
+    return (before.match(/<span/g) || []).length > (before.match(/<\/span/g) || []).length;
+  };
+  // keywords
+  rest = rest.replace(PY_KW, (m, kw, off, whole) => {
+    if (insideSpan(whole, off)) return m;
+    const cls = (kw === 'def' || kw === 'class') ? 'tok-def' : 'tok-kw';
+    return `<span class="${cls}">${kw}</span>`;
+  });
+  // numbers
+  rest = rest.replace(/\b(\d+\.?\d*)\b/g, (m, n, off, whole) => {
+    if (insideSpan(whole, off)) return m;
+    return `<span class="tok-num">${n}</span>`;
+  });
+  // clickable identifiers — resolve to known func/class/type defs
+  if (resolve) {
+    rest = rest.replace(/\b([A-Za-z_]\w*)\b/g, (m, name, off, whole) => {
+      if (insideSpan(whole, off)) return m;          // don't touch strings/keywords/numbers spans
+      if (PY_KW_SET.has(name)) return m;
+      if (name.length <= 2 && /^[A-Z]+$/.test(name)) return m;  // skip TypeVar noise (T, R, KT…)
+      const id = resolve(name);
+      if (!id) return m;
+      const d = MODEL.defsById.get(id);
+      const kc = { function: 'lk-fn', class: 'lk-cls', type: 'lk-type' }[d.kind] || '';
+      return `<span class="tok-link ${kc}" data-goto="${id}" title="${escHtml(d.qual)}">${name}</span>`;
+    });
+  }
+  return rest + (comment ? `<span class="tok-com">${comment}</span>` : '');
+}
+const PY_KW_SET = new Set(['def', 'class', 'return', 'if', 'elif', 'else', 'for', 'while', 'try',
+  'except', 'finally', 'with', 'as', 'import', 'from', 'raise', 'yield', 'lambda', 'async', 'await',
+  'pass', 'break', 'continue', 'global', 'nonlocal', 'assert', 'del', 'in', 'is', 'not', 'and', 'or',
+  'None', 'True', 'False', 'self', 'cls']);
+function findComment(line) {
+  let q = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (q) { if (c === '\\') { i++; continue; } if (c === q) q = null; continue; }
+    if (c === '"' || c === "'") q = c;
+    else if (c === '#') return i;
+  }
+  return -1;
+}
+
+let codeState = { path: null };  // which file is currently rendered
+
+function showCode(id) {
+  const d = MODEL.defsById.get(id);
+  if (!d) return;
+  const file = MODEL.fileByPath.get(d.path);
+  if (!file) return;
+
+  const panel = $('#code');
+  // auto-open when a symbol is chosen, unless user explicitly collapsed this session
+  if (codeCollapsedByUser) { codeCollapsedByUser = false; panel.classList.remove('collapsed'); syncCodeToggle(); }
+
+  $('#cpEmpty').style.display = 'none';
+  $('#cpKi').textContent = KI[d.kind];
+  $('#cpKi').style.color = kindColor(d.kind);
+  $('#cpName').textContent = d.qual;
+  $('#cpPath').textContent = d.path;
+  $('#cpPath').title = d.path;
+
+  const from = d.line, to = d.kind === 'type' ? d.line : d.end;
+
+  // only re-render the file DOM if the file changed (keeps it fast for big files)
+  if (codeState.path !== d.path) {
+    const body = $('#codeBody');
+    const lines = file.lines;
+    const gw = String(lines.length).length;
+    // per-file identifier resolver: prefer same-file def, else unique global def
+    const resolve = name => {
+      const cands = MODEL.byName.get(name);
+      if (!cands) return null;
+      const same = cands.find(c => c.path === d.path);
+      if (same) return same.id;
+      const uniq = cands;
+      return uniq.length === 1 ? uniq[0].id : null;
+    };
+    let html = '';
+    for (let i = 0; i < lines.length; i++) {
+      const g = String(i + 1).padStart(gw, ' ');
+      // only linkify code lines (skip the scrubbed strings/comments by using raw line;
+      // hlLine already guards strings & comments internally)
+      html += `<div class="cline" data-ln="${i + 1}"><span class="gutter">${g}</span>` +
+        `<span class="src">${hlLine(escHtml(lines[i]) || ' ', resolve)}</span></div>`;
+    }
+    body.innerHTML = html;
+    codeState.path = d.path;
+  }
+
+  // clear old highlights, apply new
+  const body = $('#codeBody');
+  body.querySelectorAll('.hot,.defline').forEach(r => r.classList.remove('hot', 'defline'));
+  let firstRow = null;
+  for (let ln = from; ln <= to; ln++) {
+    const row = body.children[ln - 1];
+    if (!row) continue;
+    row.classList.add('hot');
+    if (ln === from) { row.classList.add('defline'); firstRow = row; }
+  }
+  // auto-scroll so the definition sits near the top with a little context above
+  if (firstRow) {
+    const scroller = $('#codeScroll');
+    const target = Math.max(0, firstRow.offsetTop - 60);
+    scroller.scrollTo({ top: target, behavior: 'smooth' });
+  }
+}
+
+function syncCodeToggle() {
+  const on = !$('#code').classList.contains('collapsed');
+  $('#codeToggle').classList.toggle('on', on);
+}
+
+const kindColor = k => ({ function: 'var(--fn)', class: 'var(--cls)', type: 'var(--type)', file: 'var(--file)' }[k]);
+const cssEsc = s => (window.CSS && CSS.escape) ? CSS.escape(s) : s.replace(/[^\w-]/g, '\\$&');
+
+/* =========================================================================
+   WIRING
+   ========================================================================= */
+// landing
+const dz = $('#dropzone');
+['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('hot'); }));
+['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('hot'); }));
+dz.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) loadFile(f); });
+$('#pickBtn').addEventListener('click', () => $('#fileInput').click());
+$('#fileInput').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+function loadFile(f) { const rd = new FileReader(); rd.onload = () => handleArchive(f.name, rd.result); rd.readAsArrayBuffer(f); }
+$('#ghBtn').addEventListener('click', () => { const v = $('#ghInput').value; if (v.trim()) fetchGithub(v).catch(e => status('✕ ' + e.message, true)); });
+$('#ghInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('#ghBtn').click(); });
+
+// header
+const THEMES = ['deep', 'slate'];
+const THEME_LABEL = { deep: 'Deep dark', slate: 'Lighter slate' };
+let themeIdx = 0;
+function applyTheme() {
+  const t = THEMES[themeIdx];
+  document.documentElement.setAttribute('data-theme', t);
+  const btn = $('#themeToggle');
+  btn.textContent = t === 'deep' ? '◐' : '◑';
+  btn.title = `Theme: ${THEME_LABEL[t]} — click for ${THEME_LABEL[THEMES[(themeIdx + 1) % THEMES.length]]}`;
+}
+applyTheme();
+$('#themeToggle').addEventListener('click', () => {
+  themeIdx = (themeIdx + 1) % THEMES.length;
+  applyTheme();
+  // graph/code colors use CSS variables, so they repaint automatically — no re-render needed
+});
+$('#newBtn').addEventListener('click', () => location.reload());
+$('#codeToggle').addEventListener('click', () => {
+  const p = $('#code');
+  p.classList.toggle('collapsed');
+  codeCollapsedByUser = p.classList.contains('collapsed');
+  syncCodeToggle();
+});
+$('#cpClose').addEventListener('click', () => {
+  $('#code').classList.add('collapsed');
+  codeCollapsedByUser = true; syncCodeToggle();
+});
+// click a resolved identifier in the source to navigate to its definition
+$('#codeBody').addEventListener('click', e => {
+  const link = e.target.closest('.tok-link');
+  if (!link || !link.dataset.goto) return;
+  selectDef(link.dataset.goto, true);
+});
+$('#viewToggle').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+  STATE.view = b.dataset.view;
+  syncViewToggle();
+  renderCenter();
+}));
+$('#modeToggle').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+  STATE.mode = b.dataset.mode;
+  $('#modeToggle').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+  renderCenter();
+}));
+
+// depth
+$('#depth').addEventListener('input', e => {
+  STATE.depth = +e.target.value; $('#depthVal').textContent = STATE.depth; renderCenter();
+});
+
+// chips
+$('#chips').querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => {
+  const k = c.dataset.k;
+  if (STATE.kinds.has(k)) { if (STATE.kinds.size > 1) STATE.kinds.delete(k); } else STATE.kinds.add(k);
+  c.classList.toggle('on', STATE.kinds.has(k));
+  renderTree(); renderCenter();
+}));
+
+// search
+let searchT;
+$('#treeSearch').addEventListener('input', e => {
+  clearTimeout(searchT);
+  searchT = setTimeout(() => { STATE.search = e.target.value; renderTree(); }, 120);
+});
+
+// focus clear
+$('#focusClear').addEventListener('click', () => {
+  STATE.focus = null; STATE.selected = null;
+  $('#focusbar').classList.remove('on'); $('#detail').classList.remove('on');
+  renderTree(); renderCenter();
+});
+
+// zoom buttons
+$('#zin').addEventListener('click', () => svg.transition().call(zoom.scaleBy, 1.4));
+$('#zout').addEventListener('click', () => svg.transition().call(zoom.scaleBy, .7));
+$('#zfit').addEventListener('click', fitView);
+
+// force sliders — retune the live simulation without rebuilding
+const FORCE_INPUTS = { fRepulsion: 'repulsion', fDistance: 'distance', fLinkStr: 'linkStr', fGravity: 'gravity', fGather: 'gather' };
+for (const inpId in FORCE_INPUTS) {
+  const key = FORCE_INPUTS[inpId];
+  $('#' + inpId).addEventListener('input', e => {
+    if (!STATE.force) return;
+    STATE.force[key] = +e.target.value;
+    updateForces();
+  });
+}
+$('#fReset').addEventListener('click', () => {
+  STATE.force = { ...FORCE_DEFAULTS };
+  syncForceSliders();
+  updateForces();
+});
+$('#fToggle').addEventListener('click', () => {
+  const p = $('#forcesctl');
+  p.classList.toggle('collapsed');
+  $('#fToggle').textContent = p.classList.contains('collapsed') ? '▸' : '▾';
+});
+
+// resize
+addEventListener('resize', () => { if (MODEL && STATE.view === 'graph') renderGraph(); });
+
+</script>
+</body>
+</html>
