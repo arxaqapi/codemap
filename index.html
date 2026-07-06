@@ -113,6 +113,13 @@ header .icon-btn:hover{border-color:var(--accent);color:var(--ink)}
   color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px 10px;border-radius:7px;outline:none}
 .side-search input:focus{border-color:var(--accent)}
 .filter-chips{display:flex;gap:5px;padding:8px 10px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.incl-bar{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--line)}
+.incl-bar .ib-label{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;
+  letter-spacing:1px;color:var(--ink-faint);margin-right:2px}
+.incl-bar .ib-btn{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:5px;
+  border:1px solid var(--line2);background:var(--bg);color:var(--ink-dim);cursor:pointer;transition:.12s}
+.incl-bar .ib-btn:hover{border-color:var(--accent);color:var(--ink)}
+.incl-bar .ib-warn:hover{border-color:var(--refs)}
 .chip{font-family:var(--mono);font-size:10.5px;padding:3px 9px;border-radius:20px;
   border:1px solid var(--line2);color:var(--ink-dim);background:none;transition:.12s;display:flex;align-items:center;gap:5px}
 .chip .sw{width:7px;height:7px;border-radius:2px}
@@ -127,9 +134,21 @@ header .icon-btn:hover{border-color:var(--accent);color:var(--ink)}
 .trow:hover{background:var(--bg2)}
 .trow.sel{background:rgba(77,212,196,.1);border-left-color:var(--accent)}
 .trow .tw{width:11px;text-align:center;color:var(--ink-faint);font-size:9px;flex:none}
+.trow .cbx{flex:none;width:15px;text-align:center;font-size:12px;cursor:pointer;line-height:1;
+  color:var(--ink-faint);transition:color .12s}
+.trow .cbx.on{color:var(--accent)}
+.trow .cbx.mixed{color:var(--refs)}
+.trow .cbx.off{color:var(--ink-faint)}
+.trow .cbx:hover{color:var(--ink)}
 .trow .ki{width:15px;text-align:center;flex:none;font-weight:700;font-size:10px}
 .trow .nm{overflow:hidden;text-overflow:ellipsis}
 .trow .ln{margin-left:auto;color:var(--ink-faint);font-size:10px;padding-left:8px}
+.trow .cnt{margin-left:auto;color:var(--ink-faint);font-size:9.5px;
+  background:var(--bg);border:1px solid var(--line);border-radius:20px;padding:0 6px;flex:none}
+.trow-folder .nm{font-weight:600;color:var(--ink)}
+.trow-folder .ki.folder{color:var(--ink-faint)}
+.trow-file .nm{color:var(--ink-dim)}
+.trow.excluded .nm,.trow.excluded .ln{opacity:.4;text-decoration:line-through}
 .ki.file{color:var(--file)} .ki.function{color:var(--fn)}
 .ki.class{color:var(--cls)} .ki.type{color:var(--type)}
 .trow .focusbtn{opacity:0;flex:none;color:var(--ink-faint);font-size:11px;padding:0 4px}
@@ -224,6 +243,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 #detail .dt-item{font-family:var(--mono);font-size:11.5px;padding:4px 8px;border-radius:5px;
   color:var(--ink-dim);cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden}
 #detail .dt-item:hover{background:var(--bg2);color:var(--ink)}
+#detail .dt-item.off{opacity:.4;text-decoration:line-through}
 #detail .dt-item .ki{font-weight:700;flex:none}
 #detail .dt-item .txt{overflow:hidden;text-overflow:ellipsis}
 #detail .dt-none{font-family:var(--mono);font-size:11px;color:var(--ink-faint);padding:2px 8px}
@@ -362,6 +382,12 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
       <button class="chip on" data-k="class"><span class="sw" style="background:var(--cls)"></span>class</button>
       <button class="chip on" data-k="type"><span class="sw" style="background:var(--type)"></span>type</button>
     </div>
+    <div class="incl-bar">
+      <span class="ib-label">Analysis</span>
+      <button class="ib-btn" id="inclAll" title="Include every symbol">all on</button>
+      <button class="ib-btn" id="exclAll" title="Exclude every symbol">all off</button>
+      <button class="ib-btn ib-warn" id="exclMatch" title="Exclude files/symbols matching the filter text above">exclude matching</button>
+    </div>
     <div class="tree" id="tree"></div>
   </aside>
 
@@ -448,6 +474,7 @@ let STATE = {
   focus: null,             // {type:'symbol'|'file', id}
   selected: null,          // def id highlighted
   search: '',
+  disabled: new Set(),     // def ids excluded from analysis (via file/folder/symbol toggles)
   // graph force tuning (see FORCE_DEFAULTS)
   force: null
 };
@@ -694,7 +721,31 @@ function analyse(repo, pyFiles) {
     for (const t of d.calls) { const td = defsById.get(t); if (td) td.refBy.add(d.id); }
 
   const fileByPath = new Map(files.map(f => [f.path, f]));
-  return { name: repo, files, defsById, fileByPath, byName };
+  const folderTree = buildFolderTree(files);
+  return { name: repo, files, defsById, fileByPath, byName, folderTree };
+}
+
+/* group files into a nested folder tree: {name, path, dirs:[], files:[fileObj]} */
+function buildFolderTree(files) {
+  const root = { name: '', path: '', dirs: new Map(), files: [] };
+  for (const f of files) {
+    const parts = f.path.split('/');
+    const fname = parts.pop();
+    let node = root;
+    let acc = '';
+    for (const p of parts) {
+      acc = acc ? acc + '/' + p : p;
+      if (!node.dirs.has(p)) node.dirs.set(p, { name: p, path: acc, dirs: new Map(), files: [] });
+      node = node.dirs.get(p);
+    }
+    node.files.push(f);
+  }
+  // collapse single-child directory chains (e.g. src/pkg/pkg) for a tidier tree
+  const collapse = node => {
+    for (const [, d] of node.dirs) collapse(d);
+    return node;
+  };
+  return collapse(root);
 }
 
 function buildAndLaunch(repo, pyFiles) {
@@ -705,74 +756,198 @@ function buildAndLaunch(repo, pyFiles) {
   $('#repoStat').textContent = `${MODEL.files.length} files · ${nDefs} symbols · ${nEdges} edges`;
   $('#landing').style.display = 'none';
   $('#app').classList.add('on');
-  STATE = { view: 'flow', mode: 'calls', depth: 2, kinds: new Set(['function', 'class', 'type']), focus: null, selected: null, search: '', force: { ...FORCE_DEFAULTS } };
+  STATE = { view: 'flow', mode: 'calls', depth: 2, kinds: new Set(['function', 'class', 'type']), focus: null, selected: null, search: '', disabled: new Set(), force: { ...FORCE_DEFAULTS } };
   syncForceSliders();
   codeState = { path: null };
   syncViewToggle();
   $('#depth').value = STATE.depth; $('#depthVal').textContent = STATE.depth;
+  updateStat();
   renderTree();
   renderCenter();
 }
 
+/* header stat line — reflects how many symbols are active vs disabled */
+function updateStat() {
+  const all = [...MODEL.defsById.values()];
+  const total = all.length;
+  const off = all.filter(d => STATE.disabled.has(d.id)).length;
+  const active = total - off;
+  const edges = all.filter(d => !STATE.disabled.has(d.id))
+    .reduce((a, d) => a + [...d.calls].filter(t => !STATE.disabled.has(t)).length, 0);
+  $('#repoStat').textContent = off
+    ? `${MODEL.files.length} files · ${active}/${total} symbols · ${edges} edges · ${off} excluded`
+    : `${MODEL.files.length} files · ${total} symbols · ${edges} edges`;
+}
+
 /* =========================================================================
-   (4) SIDEBAR BROWSER
+   (4) SIDEBAR BROWSER — folder tree with include/exclude checkboxes
    ========================================================================= */
+
+/* collect all def ids under a file */
+function fileDefIds(f) { return f.defs.map(d => d.id); }
+/* collect all def ids under a folder node (recursive) */
+function folderDefIds(node, acc = []) {
+  for (const f of node.files) for (const d of f.defs) acc.push(d.id);
+  for (const [, d] of node.dirs) folderDefIds(d, acc);
+  return acc;
+}
+/* tri-state of a set of ids: 'on' | 'off' | 'mixed' */
+function triState(ids) {
+  if (!ids.length) return 'on';
+  let on = 0, off = 0;
+  for (const id of ids) (STATE.disabled.has(id) ? off++ : on++);
+  return off === 0 ? 'on' : (on === 0 ? 'off' : 'mixed');
+}
+function setEnabled(ids, enabled) {
+  for (const id of ids) { if (enabled) STATE.disabled.delete(id); else STATE.disabled.add(id); }
+}
+const checkboxHtml = state =>
+  `<span class="cbx ${state}" title="Include in analysis">${state === 'on' ? '☑' : state === 'off' ? '☐' : '◪'}</span>`;
+
 function renderTree() {
   const tree = $('#tree'); tree.innerHTML = '';
   const q = STATE.search.toLowerCase();
-  let any = false;
+  const frag = document.createDocumentFragment();
+  const any = renderFolder(MODEL.folderTree, frag, 0, q, true);
+  if (!any) tree.innerHTML = '<div class="empty-tree">No symbols match your filters.</div>';
+  else tree.appendChild(frag);
+}
 
-  for (const f of MODEL.files) {
-    const topDefs = f.defs.filter(d => !d.parent && passKind(d));
-    // apply search: file passes if path matches or any descendant matches
-    const matchDef = d => !q || d.qual.toLowerCase().includes(q) || d.name.toLowerCase().includes(q);
-    const fileMatches = !q || f.path.toLowerCase().includes(q) || f.defs.some(matchDef);
-    if (!fileMatches || (!topDefs.length && q && !f.path.toLowerCase().includes(q))) continue;
+/* returns true if anything was rendered (for search pruning) */
+function renderFolder(node, container, depth, q, isRoot) {
+  let rendered = false;
+  // sort: directories first, then files, alphabetically
+  const dirs = [...node.dirs.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const files = [...node.files].sort((a, b) => a.path.localeCompare(b.path));
 
-    const node = el('div', 'tnode');
-    const row = el('div', 'trow');
-    row.dataset.file = f.path;
-    const shortPath = f.path.split('/').slice(-2).join('/');
-    row.innerHTML = `<span class="tw">▾</span><span class="ki file">${KI.file}</span>
-      <span class="nm" title="${f.path}">${shortPath}</span>
-      <span class="focusbtn" title="Focus this file">◎</span>`;
+  for (const dir of dirs) {
+    const ids = folderDefIds(dir);
+    // search prune: does this folder contain a match?
+    const dirMatch = !q || dir.path.toLowerCase().includes(q) ||
+      dir.files.some(f => fileMatchesSearch(f, q)) ||
+      [...dir.dirs.values()].some(sd => folderHasMatch(sd, q));
+    if (!dirMatch) continue;
+
+    const box = el('div', 'tnode');
+    const row = el('div', 'trow trow-folder');
+    row.style.paddingLeft = (8 + depth * 14) + 'px';
+    const st = triState(ids);
+    row.innerHTML =
+      `<span class="tw">▾</span>${checkboxHtml(st)}` +
+      `<span class="ki folder">▸</span>` +
+      `<span class="nm" title="${dir.path}">${dir.name}</span>` +
+      `<span class="cnt">${ids.length}</span>`;
     const kids = el('div', 'tchildren');
-    node.appendChild(row); node.appendChild(kids);
+    box.appendChild(row); box.appendChild(kids);
 
     const tw = row.querySelector('.tw');
+    row.querySelector('.cbx').addEventListener('click', e => {
+      e.stopPropagation();
+      setEnabled(ids, triState(ids) !== 'on' ? true : false);
+      afterToggle();
+    });
     row.addEventListener('click', e => {
+      if (e.target.classList.contains('cbx')) return;
+      const open = kids.style.display !== 'none';
+      kids.style.display = open ? 'none' : ''; tw.textContent = open ? '▸' : '▾';
+    });
+    renderFolder(dir, kids, depth + 1, q, false);
+    container.appendChild(box); rendered = true;
+  }
+
+  for (const f of files) {
+    if (q && !fileMatchesSearch(f, q)) continue;
+    const topDefs = f.defs.filter(d => !d.parent && passKind(d));
+    const matchDef = d => !q || d.qual.toLowerCase().includes(q) || d.name.toLowerCase().includes(q);
+    const fileMatchesPath = !q || f.path.toLowerCase().includes(q);
+    if (q && !fileMatchesPath && !f.defs.some(matchDef)) continue;
+
+    const ids = fileDefIds(f);
+    const box = el('div', 'tnode');
+    const row = el('div', 'trow trow-file');
+    row.style.paddingLeft = (8 + depth * 14) + 'px';
+    row.dataset.file = f.path;
+    const st = triState(ids);
+    const fname = f.path.split('/').pop();
+    row.innerHTML =
+      `<span class="tw">▾</span>${checkboxHtml(st)}` +
+      `<span class="ki file">${KI.file}</span>` +
+      `<span class="nm" title="${f.path}">${fname}</span>` +
+      `<span class="focusbtn" title="Focus this file">◎</span>`;
+    const kids = el('div', 'tchildren');
+    box.appendChild(row); box.appendChild(kids);
+
+    const tw = row.querySelector('.tw');
+    row.querySelector('.cbx').addEventListener('click', e => {
+      e.stopPropagation();
+      setEnabled(ids, triState(ids) !== 'on');
+      afterToggle();
+    });
+    row.addEventListener('click', e => {
+      if (e.target.classList.contains('cbx')) return;
       if (e.target.classList.contains('focusbtn')) { setFocus('file', f.path); return; }
       const open = kids.style.display !== 'none';
-      kids.style.display = open ? 'none' : '';
-      tw.textContent = open ? '▸' : '▾';
+      kids.style.display = open ? 'none' : ''; tw.textContent = open ? '▸' : '▾';
     });
     row.querySelector('.focusbtn').addEventListener('click', e => { e.stopPropagation(); setFocus('file', f.path); });
 
-    topDefs.forEach(d => buildDefRow(d, kids, 1, matchDef));
+    topDefs.forEach(d => buildDefRow(d, kids, depth + 1, matchDef));
     if (STATE.focus && STATE.focus.type === 'file' && STATE.focus.id === f.path) row.classList.add('sel');
-    tree.appendChild(node); any = true;
+    container.appendChild(box); rendered = true;
   }
-  if (!any) tree.innerHTML = '<div class="empty-tree">No symbols match your filters.</div>';
+  return rendered;
+}
+
+function fileMatchesSearch(f, q) {
+  return !q || f.path.toLowerCase().includes(q) ||
+    f.defs.some(d => d.qual.toLowerCase().includes(q) || d.name.toLowerCase().includes(q));
+}
+function folderHasMatch(node, q) {
+  if (!q) return true;
+  if (node.path.toLowerCase().includes(q)) return true;
+  if (node.files.some(f => fileMatchesSearch(f, q))) return true;
+  return [...node.dirs.values()].some(d => folderHasMatch(d, q));
+}
+
+/* re-render everything affected after a checkbox toggle */
+function afterToggle() {
+  updateStat();
+  renderTree();
+  renderCenter();
+  if (STATE.selected) renderDetail(STATE.selected);
 }
 
 function passKind(d) { return STATE.kinds.has(d.kind); }
+/* master gate: a def participates in analysis only if its kind is shown AND it isn't disabled */
+function isActive(d) { return !!d && STATE.kinds.has(d.kind) && !STATE.disabled.has(d.id); }
+function isActiveId(id) { const d = MODEL.defsById.get(id); return isActive(d); }
 
 function buildDefRow(d, container, depth, matchDef) {
   if (!passKind(d) && !d.children.some(c => passKind(MODEL.defsById.get(c)))) return;
   const kids = d.children.map(c => MODEL.defsById.get(c)).filter(Boolean);
   const row = el('div', 'trow');
-  row.style.paddingLeft = (10 + depth * 15) + 'px';
+  row.style.paddingLeft = (8 + depth * 14) + 'px';
   row.dataset.id = d.id;
   const hasKids = kids.length > 0;
+  // a symbol's checkbox reflects itself + descendants
+  const subIds = [d.id, ...collectDefSubtree(d)];
+  const st = triState(subIds);
+  if (STATE.disabled.has(d.id)) row.classList.add('excluded');
   row.innerHTML =
-    `<span class="tw">${hasKids ? '▾' : ''}</span>
-     <span class="ki ${d.kind}">${KI[d.kind]}</span>
-     <span class="nm" title="${d.qual}">${d.name}</span>
-     <span class="ln">${d.line}</span>
-     <span class="focusbtn" title="Focus / entry point">◎</span>`;
+    `<span class="tw">${hasKids ? '▾' : ''}</span>${checkboxHtml(st)}` +
+    `<span class="ki ${d.kind}">${KI[d.kind]}</span>` +
+    `<span class="nm" title="${d.qual}">${d.name}</span>` +
+    `<span class="ln">${d.line}</span>` +
+    `<span class="focusbtn" title="Focus / entry point">◎</span>`;
   const childBox = el('div', 'tchildren');
 
+  row.querySelector('.cbx').addEventListener('click', e => {
+    e.stopPropagation();
+    setEnabled(subIds, triState(subIds) !== 'on');
+    afterToggle();
+  });
   row.addEventListener('click', e => {
+    if (e.target.classList.contains('cbx')) return;
     if (e.target.classList.contains('focusbtn')) return;
     if (e.target.classList.contains('tw') && hasKids) {
       const open = childBox.style.display !== 'none';
@@ -787,6 +962,15 @@ function buildDefRow(d, container, depth, matchDef) {
   if (STATE.selected === d.id) row.classList.add('sel');
   container.appendChild(row);
   if (hasKids) { container.appendChild(childBox); kids.forEach(c => buildDefRow(c, childBox, depth + 1, matchDef)); }
+}
+/* all descendant def ids of a symbol (nested funcs/classes) */
+function collectDefSubtree(d, acc = []) {
+  for (const cid of d.children) {
+    acc.push(cid);
+    const c = MODEL.defsById.get(cid);
+    if (c) collectDefSubtree(c, acc);
+  }
+  return acc;
 }
 
 /* =========================================================================
@@ -805,22 +989,22 @@ function computeVisible() {
   let roots;
 
   if (STATE.focus && STATE.focus.type === 'file') {
-    roots = [...D.values()].filter(d => d.path === STATE.focus.id && passKind(d) && !d.parent);
-    if (!roots.length) roots = [...D.values()].filter(d => d.path === STATE.focus.id && passKind(d));
+    roots = [...D.values()].filter(d => d.path === STATE.focus.id && isActive(d) && !d.parent);
+    if (!roots.length) roots = [...D.values()].filter(d => d.path === STATE.focus.id && isActive(d));
   } else if (STATE.selected) {
-    roots = [D.get(STATE.selected)].filter(Boolean);
+    roots = [D.get(STATE.selected)].filter(isActive);
   } else if (STATE.focus && STATE.focus.type === 'symbol') {
-    roots = [D.get(STATE.focus.id)].filter(Boolean);
+    roots = [D.get(STATE.focus.id)].filter(isActive);
   } else {
-    // overview: all passing defs, edges among them, depth ignored (show 1 hop of structure)
-    const nodes = [...D.values()].filter(passKind);
+    // overview: all active defs, edges among them
+    const nodes = [...D.values()].filter(isActive);
     const set = new Set(nodes.map(n => n.id));
     const links = [];
     for (const n of nodes) for (const t of n.calls) if (set.has(t)) links.push({ source: n.id, target: t, kind: 'calls' });
     return { nodes, links, rootIds: new Set() };
   }
 
-  // BFS out to depth
+  // BFS out to depth — never traverse into disabled nodes (edges through them are dropped)
   const visited = new Map();   // id -> hop
   const links = [];
   const rootIds = new Set(roots.map(r => r.id));
@@ -831,7 +1015,7 @@ function computeVisible() {
     for (const id of frontier) {
       const d = D.get(id); if (!d) continue;
       for (const t of d[dir]) {
-        const td = D.get(t); if (!td) continue;
+        const td = D.get(t); if (!td || !isActive(td)) continue;   // skip disabled targets
         // edge direction always drawn caller->callee for clarity
         if (dir === 'calls') links.push({ source: id, target: t, kind: 'calls' });
         else links.push({ source: t, target: id, kind: 'refs' });
@@ -876,7 +1060,7 @@ function renderFlow() {
     // file focus → show each top-level symbol of that file as a mini-forest
     if (STATE.focus && STATE.focus.type === 'file') {
       const roots = [...MODEL.defsById.values()]
-        .filter(d => d.path === STATE.focus.id && !d.parent && passKind(d))
+        .filter(d => d.path === STATE.focus.id && !d.parent && isActive(d))
         .sort((a, b) => a.line - b.line);
       if (roots.length) { renderFlowForest(host, roots, dir); return; }
     }
@@ -913,10 +1097,10 @@ function buildFlowNode(d, dir, depth, onPath, isRoot) {
   if (!recursive && depth < STATE.depth) {
     if (dir === 'callSites') {
       kids = (d.callSites || []).map(cs => ({ def: MODEL.defsById.get(cs.id), line: cs.line, viaCall: cs.viaCall }))
-        .filter(k => k.def && passKind(k.def));
+        .filter(k => k.def && isActive(k.def));
     } else {
       kids = [...d.refBy].map(id => MODEL.defsById.get(id)).filter(Boolean)
-        .filter(passKind).sort((a, b) => a.line - b.line)
+        .filter(isActive).sort((a, b) => a.line - b.line)
         .map(def => ({ def, line: def.line, viaCall: true }));
     }
   }
@@ -1156,11 +1340,14 @@ function renderDetail(id) {
 
   const list = (title, ids, color) => {
     const arr = [...ids].map(x => MODEL.defsById.get(x)).filter(Boolean);
-    let html = `<h4><span style="color:${color}">${title}</span><span class="c">${arr.length}</span></h4>`;
+    const activeN = arr.filter(x => !STATE.disabled.has(x.id)).length;
+    const cnt = activeN === arr.length ? `${arr.length}` : `${activeN}/${arr.length}`;
+    let html = `<h4><span style="color:${color}">${title}</span><span class="c">${cnt}</span></h4>`;
     if (!arr.length) html += `<div class="dt-none">none</div>`;
-    else html += arr.map(x =>
-      `<div class="dt-item" data-goto="${x.id}"><span class="ki" style="color:${kindColor(x.kind)}">${KI[x.kind]}</span><span class="txt" title="${x.qual} · ${x.path}">${x.qual}</span></div>`
-    ).join('');
+    else html += arr.map(x => {
+      const off = STATE.disabled.has(x.id);
+      return `<div class="dt-item${off ? ' off' : ''}" data-goto="${x.id}"><span class="ki" style="color:${kindColor(x.kind)}">${KI[x.kind]}</span><span class="txt" title="${x.qual} · ${x.path}${off ? ' · excluded' : ''}">${x.qual}</span></div>`;
+    }).join('');
     return html;
   };
   $('#dtCalls').innerHTML = list('Calls / uses', d.calls, 'var(--calls)');
@@ -1373,6 +1560,22 @@ $('#chips').querySelectorAll('.chip').forEach(c => c.addEventListener('click', (
   renderTree(); renderCenter();
 }));
 
+// include/exclude bulk actions
+$('#inclAll').addEventListener('click', () => { STATE.disabled.clear(); afterToggle(); });
+$('#exclAll').addEventListener('click', () => {
+  for (const id of MODEL.defsById.keys()) STATE.disabled.add(id); afterToggle();
+});
+$('#exclMatch').addEventListener('click', () => {
+  const q = (STATE.search || '').trim().toLowerCase();
+  if (!q) { flashSearch(); return; }
+  for (const d of MODEL.defsById.values()) {
+    if (d.path.toLowerCase().includes(q) || d.qual.toLowerCase().includes(q) || d.name.toLowerCase().includes(q))
+      STATE.disabled.add(d.id);
+  }
+  afterToggle();
+});
+function flashSearch() { const i = $('#treeSearch'); i.focus(); i.style.borderColor = 'var(--refs)'; setTimeout(() => i.style.borderColor = '', 700); }
+
 // search
 let searchT;
 $('#treeSearch').addEventListener('input', e => {
@@ -1405,7 +1608,6 @@ for (const inpId in FORCE_INPUTS) {
       fvalue_field.textContent = event.target.value;
   });
   // ===========================
-
   const key = FORCE_INPUTS[inpId];
   $('#' + inpId).addEventListener('input', e => {
     if (!STATE.force) return;
