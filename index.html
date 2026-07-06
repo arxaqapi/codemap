@@ -169,7 +169,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .depth-inline .di-val{font-family:var(--mono);font-size:13px;font-weight:700;
   color:var(--accent);min-width:9px;text-align:center}
 /* forces control panel (graph view) */
-#forcesctl{top:14px;left:14px;width:210px;padding:0;overflow:hidden}
+#forcesctl{top:14px;left:14px;padding:0;overflow:hidden}
 .fx-head{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line)}
 .fx-title{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:1.5px;
   color:var(--ink-faint);flex:1}
@@ -391,11 +391,11 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
         <button class="fx-toggle" id="fToggle" title="Collapse">▾</button>
       </div>
       <div class="fx-body" id="fBody">
-        <label class="fx-row"><span>Repulsion</span><input type="range" id="fRepulsion" min="0" max="900" step="10" value="320"></label>
-        <label class="fx-row"><span>Link length</span><input type="range" id="fDistance" min="20" max="260" step="5" value="90"></label>
-        <label class="fx-row"><span>Link pull</span><input type="range" id="fLinkStr" min="0" max="100" step="1" value="50"></label>
-        <label class="fx-row"><span>Gravity</span><input type="range" id="fGravity" min="0" max="100" step="1" value="12"></label>
-        <label class="fx-row fx-hl"><span>Gather isolates</span><input type="range" id="fGather" min="0" max="100" step="1" value="45"></label>
+        <label class="fx-row"><span>Repulsion</span><input type="range" id="fRepulsion" min="0" max="900" step="10" value="320"><output id="fRepulsion-value"></output></label>
+        <label class="fx-row"><span>Link length</span><input type="range" id="fDistance" min="20" max="260" step="5" value="90"><output id="fDistance-value"></output></label>
+        <label class="fx-row"><span>Link pull</span><input type="range" id="fLinkStr" min="0" max="100" step="1" value="50"><output id="fLinkStr-value"></output></label>
+        <label class="fx-row"><span>Gravity</span><input type="range" id="fGravity" min="0" max="100" step="1" value="12"><output id="fGravity-value"></output></label>
+        <label class="fx-row fx-hl"><span>Gather isolates</span><input type="range" id="fGather" min="0" max="100" step="1" value="45"><output id="fGather-value"></output></label>
       </div>
     </div>
 
@@ -1395,6 +1395,17 @@ $('#zfit').addEventListener('click', fitView);
 // force sliders — retune the live simulation without rebuilding
 const FORCE_INPUTS = { fRepulsion: 'repulsion', fDistance: 'distance', fLinkStr: 'linkStr', fGravity: 'gravity', fGather: 'gather' };
 for (const inpId in FORCE_INPUTS) {
+  // ====== value display ======
+  const fvalue_field = document.querySelector(
+      "#" + inpId + "-value",
+  );
+  const finput = document.querySelector("#" + inpId);
+  fvalue_field.textContent = finput.value;
+  $("#" + inpId).addEventListener("input", (e) => {
+      fvalue_field.textContent = event.target.value;
+  });
+  // ===========================
+
   const key = FORCE_INPUTS[inpId];
   $('#' + inpId).addEventListener('input', e => {
     if (!STATE.force) return;
