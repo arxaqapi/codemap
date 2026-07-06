@@ -470,7 +470,7 @@ let STATE = {
   view: 'flow',            // 'flow' | 'graph'
   mode: 'calls',           // 'calls' | 'refs'
   depth: 2,
-  kinds: new Set(['function', 'class', 'type']),
+  kinds: new Set(['function', 'class', 'type', 'file']),
   focus: null,             // {type:'symbol'|'file', id}
   selected: null,          // def id highlighted
   search: '',
@@ -646,6 +646,33 @@ function parseFile(path, src) {
       if (indentOf(code[j]) <= d.indent) { d.end = j; break; }
     }
   }
+  // attach contiguous decorator lines to the def they decorate
+  for (const d of defs) {
+    if (d.kind === 'type') { d.decoStart = d.line; continue; }
+    let ds = d.line;
+    while (ds > 1 && /^\s*@/.test(code[ds - 2])) ds--;
+    d.decoStart = ds;
+  }
+  // synthetic <module> symbol: scripts with top-level executable code
+  // (calls outside any def/class would otherwise vanish from the graph)
+  const topSpans = defs.filter(d => !d.parent).map(d => [d.decoStart, d.end]);
+  const inTop = ln => topSpans.some(([a, b]) => ln >= a && ln <= b);
+  let firstTop = 0;
+  for (let j = 0; j < lines.length; j++) {
+    const t = code[j].trim();
+    if (!t) continue;
+    const ln = j + 1;
+    if (inTop(ln)) continue;
+    if (/^(import|from)\b/.test(t)) continue;   // bare imports alone don't make a script
+    if (/^@/.test(t)) continue;
+    firstTop = ln; break;
+  }
+  if (firstTop) {
+    defs.unshift({ id: path + '::<module>', name: '<module>', kind: 'file', qual: '<module>',
+      path, line: firstTop, bodyStart: 1, decoStart: 1, end: lines.length, indent: -1,
+      parent: null, children: [], calls: new Set(), refBy: new Set(), callSites: [],
+      isModule: true });
+  }
   return { path, defs, code, lines };
 }
 const indentOf = s => (s.match(/^(\s*)/)[1] || '').length;
@@ -679,14 +706,17 @@ function analyse(repo, pyFiles) {
         return uniq.length ? uniq[0].id : null;
       };
       // lines occupied by nested child defs — attribute those to the child, not here
-      const childSpans = f.defs
-        .filter(c => c.parent === d.id)
-        .map(c => [c.line, c.end]);
-      const inChild = ln => childSpans.some(([a, b]) => ln >= a && ln < b);
+      // (for the synthetic <module> symbol, every top-level def is a "child")
+      const childSpans = (d.isModule
+        ? f.defs.filter(c => !c.parent && c !== d)
+        : f.defs.filter(c => c.parent === d.id))
+        .map(c => [c.decoStart || c.line, c.end]);
+      const inChild = ln => childSpans.some(([a, b]) => ln >= a && ln <= b);
 
       const seenCall = new Set();
       const firstAt = new Map();   // targetId -> {line, name, viaCall}
-      for (let j = d.bodyStart - 1; j < d.end; j++) {
+      // start at decorators (and full multi-line signature), not just the last signature line
+      for (let j = (d.decoStart || d.bodyStart) - 1; j < d.end; j++) {
         const ln = j + 1;
         if (inChild(ln)) continue;
         const line = f.code[j]; if (!line) continue;
@@ -695,6 +725,7 @@ function analyse(repo, pyFiles) {
         while ((m = callTokenRe.exec(line))) {
           const nm = m[1];
           if (RESERVED.has(nm)) continue;
+          if (ln === d.line && nm === d.name) continue;  // the def's own name in its signature
           seenCall.add(nm);
           const id = resolve(nm);
           if (id && id !== d.id && !firstAt.has(id)) firstAt.set(id, { line: ln, name: nm, viaCall: true });
@@ -703,6 +734,7 @@ function analyse(repo, pyFiles) {
         while ((m = refTokenRe.exec(line))) {
           const nm = m[1];
           if (RESERVED.has(nm)) continue;
+          if (ln === d.line && nm === d.name) continue;
           if (seenCall.has(nm)) continue;
           if (nm.length <= 2 && /^[A-Z]+$/.test(nm)) continue;  // TypeVar noise
           const id = resolve(nm);
@@ -756,7 +788,7 @@ function buildAndLaunch(repo, pyFiles) {
   $('#repoStat').textContent = `${MODEL.files.length} files · ${nDefs} symbols · ${nEdges} edges`;
   $('#landing').style.display = 'none';
   $('#app').classList.add('on');
-  STATE = { view: 'flow', mode: 'calls', depth: 2, kinds: new Set(['function', 'class', 'type']), focus: null, selected: null, search: '', disabled: new Set(), force: { ...FORCE_DEFAULTS } };
+  STATE = { view: 'flow', mode: 'calls', depth: 2, kinds: new Set(['function', 'class', 'type', 'file']), focus: null, selected: null, search: '', disabled: new Set(), force: { ...FORCE_DEFAULTS } };
   syncForceSliders();
   codeState = { path: null };
   syncViewToggle();
