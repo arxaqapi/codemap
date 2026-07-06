@@ -24,7 +24,7 @@
 :root, [data-theme="deep"]{
   --bg:#0d1117; --bg2:#111823; --panel:#0f1620; --panel2:#141d2a;
   --line:#1e2a3a; --line2:#28374b;
-  --ink:#e6edf3; --ink-dim:#8b9bb0; --ink-faint:#556579;
+  --ink:#e6edf3; --ink-dim:#8b9bb0; --ink-faint:#64748c;
   --shadow:0 8px 30px rgba(0,0,0,.45);
   --grid-dot:var(--line);
   --gutter-bg:var(--panel);
@@ -33,7 +33,7 @@
 [data-theme="slate"]{
   --bg:#1b2028; --bg2:#222933; --panel:#232a34; --panel2:#2b333f;
   --line:#333c49; --line2:#414c5c;
-  --ink:#eef2f7; --ink-dim:#a4b1c2; --ink-faint:#6f7d90;
+  --ink:#eef2f7; --ink-dim:#a4b1c2; --ink-faint:#7e8ca0;
   --shadow:0 8px 30px rgba(0,0,0,.35);
   --grid-dot:#2f3945;
   --gutter-bg:var(--panel);
@@ -127,6 +127,7 @@ header .icon-btn:hover{border-color:var(--accent);color:var(--ink)}
 .chip[data-k="function"].on{border-color:var(--fn)}
 .chip[data-k="class"].on{border-color:var(--cls)}
 .chip[data-k="type"].on{border-color:var(--type)}
+.chip[data-k="file"].on{border-color:var(--file)}
 .tree{flex:1;overflow-y:auto;padding:6px 0 40px}
 .tnode{font-family:var(--mono);font-size:12px;user-select:none}
 .trow{display:flex;align-items:center;gap:6px;padding:3px 10px;cursor:pointer;
@@ -134,14 +135,16 @@ header .icon-btn:hover{border-color:var(--accent);color:var(--ink)}
 .trow:hover{background:var(--bg2)}
 .trow.sel{background:rgba(77,212,196,.1);border-left-color:var(--accent)}
 .trow .tw{width:11px;text-align:center;color:var(--ink-faint);font-size:9px;flex:none}
-.trow .cbx{flex:none;width:15px;text-align:center;font-size:12px;cursor:pointer;line-height:1;
-  color:var(--ink-faint);transition:color .12s}
-.trow .cbx.on{color:var(--accent)}
-.trow .cbx.mixed{color:var(--refs)}
-.trow .cbx.off{color:var(--ink-faint)}
-.trow .cbx:hover{color:var(--ink)}
-.trow .ki{width:15px;text-align:center;flex:none;font-weight:700;font-size:10px}
+.trow .cbx{flex:none;width:12px;height:12px;border-radius:3.5px;border:1.5px solid var(--line2);
+  display:inline-flex;align-items:center;justify-content:center;cursor:pointer;
+  color:var(--bg);transition:border-color .12s,background .12s}
+.trow .cbx.on{background:var(--accent);border-color:var(--accent)}
+.trow .cbx.mixed{border-color:var(--refs)}
+.trow .cbx.mixed::after{content:'';width:6px;height:2px;border-radius:1px;background:var(--refs)}
+.trow .cbx:hover{border-color:var(--ink)}
+.trow .ki{flex:none}
 .trow .nm{overflow:hidden;text-overflow:ellipsis}
+.trow .nm.mod{font-style:italic;color:var(--file)}
 .trow .ln{margin-left:auto;color:var(--ink-faint);font-size:10px;padding-left:8px}
 .trow .cnt{margin-left:auto;color:var(--ink-faint);font-size:9.5px;
   background:var(--bg);border:1px solid var(--line);border-radius:20px;padding:0 6px;flex:none}
@@ -149,9 +152,18 @@ header .icon-btn:hover{border-color:var(--accent);color:var(--ink)}
 .trow-folder .ki.folder{color:var(--ink-faint)}
 .trow-file .nm{color:var(--ink-dim)}
 .trow.excluded .nm,.trow.excluded .ln{opacity:.4;text-decoration:line-through}
-.ki.file{color:var(--file)} .ki.function{color:var(--fn)}
-.ki.class{color:var(--cls)} .ki.type{color:var(--type)}
-.trow .focusbtn{opacity:0;flex:none;color:var(--ink-faint);font-size:11px;padding:0 4px}
+/* kind badge: 15px tinted chip, letter centered — legible at any zoom */
+.ki{display:inline-flex;align-items:center;justify-content:center;flex:none;
+  width:15px;height:15px;border-radius:4px;font-family:var(--mono);
+  font-weight:700;font-size:9.5px;line-height:1;font-style:normal}
+.ki.file{color:var(--file);background:rgba(139,155,176,.16)}
+.ki.function{color:var(--fn);background:rgba(110,168,254,.16)}
+.ki.class{color:var(--cls);background:rgba(199,146,234,.16)}
+.ki.type{color:var(--type);background:rgba(126,231,135,.16)}
+.ki.doc{color:var(--file);background:none;width:auto}
+.ki.folder{background:none;width:auto}
+.trow .focusbtn{opacity:0;flex:none;color:var(--ink-faint);padding:0 4px;
+  display:inline-flex;align-items:center}
 .trow:hover .focusbtn{opacity:1}
 .trow .focusbtn:hover{color:var(--accent)}
 .tchildren{overflow:hidden}
@@ -225,6 +237,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .legend .lr .dt{width:9px;height:9px;border-radius:50%;flex:none}
 .zoomctl{position:absolute;bottom:14px;right:14px;display:flex;flex-direction:column;gap:6px}
 .zoomctl button{width:32px;height:32px;border-radius:8px;background:rgba(15,22,32,.9);
+  display:flex;align-items:center;justify-content:center;
   border:1px solid var(--line2);color:var(--ink);font-size:15px;display:grid;place-items:center}
 .zoomctl button:hover{border-color:var(--accent)}
 
@@ -275,7 +288,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .flow-row.root .fl-name{font-weight:700;color:var(--ink)}
 .flow-row .fl-tw{width:13px;flex:none;text-align:center;color:var(--ink-faint);font-size:10px}
 .flow-row .fl-tw:hover{color:var(--accent)}
-.flow-row .ki{flex:none;font-weight:700;font-size:11px}
+.flow-row .ki{flex:none}
 .flow-row .fl-name{color:var(--ink);white-space:nowrap}
 .flow-row .fl-qual{color:var(--ink-faint);font-size:10.5px;white-space:nowrap}
 .flow-row .fl-ln{margin-left:auto;color:var(--ink-faint);font-size:10px;
@@ -285,6 +298,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
   padding:1px 7px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px}
 .flow-row .fl-leaf{flex:none;font-size:9px;color:var(--ink-faint);opacity:.55}
 .flow-row .ki.function{color:var(--fn)} .flow-row .ki.class{color:var(--cls)} .flow-row .ki.type{color:var(--type)}
+.flow-row .ki.file{color:var(--file)}
+.flow-row .fl-name.mod{font-style:italic;color:var(--file)}
 
 /* ---------- RIGHT: CODE PANEL ---------- */
 #code{grid-row:2;width:440px;background:var(--panel);border-left:1px solid var(--line);
@@ -370,7 +385,7 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
       <button data-mode="refs"><span class="dot" style="background:var(--refs)"></span>Referenced by</button>
     </div>
     <button class="icon-btn" id="themeToggle" title="Switch theme">◐</button>
-    <button class="icon-btn" id="codeToggle" title="Toggle source panel">&lt;/&gt;</button>
+    <button class="icon-btn" id="codeToggle" title="Toggle source panel">&lt;&gt;</button>
     <button class="icon-btn" id="newBtn" title="Load different code">↻</button>
   </header>
 
@@ -381,6 +396,7 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
       <button class="chip on" data-k="function"><span class="sw" style="background:var(--fn)"></span>func</button>
       <button class="chip on" data-k="class"><span class="sw" style="background:var(--cls)"></span>class</button>
       <button class="chip on" data-k="type"><span class="sw" style="background:var(--type)"></span>type</button>
+      <button class="chip on" data-k="file" title="Top-level script code (module bodies, __main__ blocks)"><span class="sw" style="background:var(--file)"></span>script</button>
     </div>
     <div class="incl-bar">
       <span class="ib-label">Analysis</span>
@@ -428,11 +444,11 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
     <div class="legend" id="legend" style="display:none">
       <div class="lr"><span class="sw" style="border-color:var(--calls)"></span>calls out to</div>
       <div class="lr"><span class="sw" style="border-color:var(--refs)"></span>referenced by</div>
-      <div class="lr" style="margin-top:2px"><span class="dt" style="background:var(--fn)"></span>func &nbsp;<span class="dt" style="background:var(--cls)"></span>class &nbsp;<span class="dt" style="background:var(--type)"></span>type</div>
+      <div class="lr" style="margin-top:2px"><span class="dt" style="background:var(--fn)"></span>func &nbsp;<span class="dt" style="background:var(--cls)"></span>class &nbsp;<span class="dt" style="background:var(--type)"></span>type &nbsp;<span class="dt" style="background:var(--file)"></span>script</div>
     </div>
 
     <div class="zoomctl" id="zoomctl" style="display:none">
-      <button id="zin">+</button><button id="zout">−</button><button id="zfit" title="Fit">⊡</button>
+      <button id="zin">+</button><button id="zout">−</button><button id="zfit" title="Fit to view"><svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 4V1.5H4M8 1.5h2.5V4M10.5 8v2.5H8M4 10.5H1.5V8"/></svg></button>
     </div>
 
     <div class="emptygraph" id="emptyGraph" style="display:none"></div>
@@ -462,7 +478,16 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
 
 const $ = s => document.querySelector(s);
 const el = (t, c) => { const e = document.createElement(t); if (c) e.className = c; return e; };
-const KI = { file: '▤', function: 'ƒ', class: '◇', type: 'τ' };
+const escHtml = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+/* kind badges — plain letterforms inside a tinted chip (crisper than dingbat glyphs,
+   which render as tofu boxes on systems missing them) */
+const KI = { file: 'm', function: 'ƒ', class: 'C', type: 'τ' };
+const ICON = {
+  doc: '<svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 1.5h4L9.5 4v6.5h-6.5z"/><path d="M7 1.5V4h2.5"/></svg>',
+  focus: '<svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="6" r="4.2"/><circle cx="6" cy="6" r="1.2" fill="currentColor" stroke="none"/></svg>',
+  check: '<svg viewBox="0 0 10 10" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M1.8 5.3 4 7.4 8.2 2.9"/></svg>',
+  fit: '<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 4V1.5H4M8 1.5h2.5V4M10.5 8v2.5H8M4 10.5H1.5V8"/></svg>',
+};
 
 /* global analysis state */
 let MODEL = null;          // {files:[{path,defs:[...]}], defsById:Map, name}
@@ -789,6 +814,7 @@ function buildAndLaunch(repo, pyFiles) {
   $('#landing').style.display = 'none';
   $('#app').classList.add('on');
   STATE = { view: 'flow', mode: 'calls', depth: 2, kinds: new Set(['function', 'class', 'type', 'file']), focus: null, selected: null, search: '', disabled: new Set(), force: { ...FORCE_DEFAULTS } };
+  document.querySelectorAll('#chips .chip').forEach(c => c.classList.toggle('on', STATE.kinds.has(c.dataset.k)));
   syncForceSliders();
   codeState = { path: null };
   syncViewToggle();
@@ -834,7 +860,7 @@ function setEnabled(ids, enabled) {
   for (const id of ids) { if (enabled) STATE.disabled.delete(id); else STATE.disabled.add(id); }
 }
 const checkboxHtml = state =>
-  `<span class="cbx ${state}" title="Include in analysis">${state === 'on' ? '☑' : state === 'off' ? '☐' : '◪'}</span>`;
+  `<span class="cbx ${state}" title="Include in analysis">${state === 'on' ? ICON.check : ''}</span>`;
 
 function renderTree() {
   const tree = $('#tree'); tree.innerHTML = '';
@@ -903,9 +929,9 @@ function renderFolder(node, container, depth, q, isRoot) {
     const fname = f.path.split('/').pop();
     row.innerHTML =
       `<span class="tw">▾</span>${checkboxHtml(st)}` +
-      `<span class="ki file">${KI.file}</span>` +
+      `<span class="ki doc">${ICON.doc}</span>` +
       `<span class="nm" title="${f.path}">${fname}</span>` +
-      `<span class="focusbtn" title="Focus this file">◎</span>`;
+      `<span class="focusbtn" title="Focus this file">${ICON.focus}</span>`;
     const kids = el('div', 'tchildren');
     box.appendChild(row); box.appendChild(kids);
 
@@ -968,9 +994,9 @@ function buildDefRow(d, container, depth, matchDef) {
   row.innerHTML =
     `<span class="tw">${hasKids ? '▾' : ''}</span>${checkboxHtml(st)}` +
     `<span class="ki ${d.kind}">${KI[d.kind]}</span>` +
-    `<span class="nm" title="${d.qual}">${d.name}</span>` +
+    `<span class="nm${d.isModule ? ' mod' : ''}" title="${escHtml(d.qual)}">${escHtml(d.name)}</span>` +
     `<span class="ln">${d.line}</span>` +
-    `<span class="focusbtn" title="Focus / entry point">◎</span>`;
+    `<span class="focusbtn" title="Focus / entry point">${ICON.focus}</span>`;
   const childBox = el('div', 'tchildren');
 
   row.querySelector('.cbx').addEventListener('click', e => {
@@ -1144,8 +1170,8 @@ function buildFlowNode(d, dir, depth, onPath, isRoot) {
   row.innerHTML =
     `<span class="fl-tw">${twig}</span>` +
     `<span class="ki ${d.kind}">${KI[d.kind]}</span>` +
-    `<span class="fl-name">${d.name}</span>` +
-    (d.qual.includes('.') ? `<span class="fl-qual">${d.qual.split('.').slice(0, -1).join('.')}</span>` : '') +
+    `<span class="fl-name${d.isModule ? ' mod' : ''}">${escHtml(d.name)}</span>` +
+    (d.qual.includes('.') ? `<span class="fl-qual">${escHtml(d.qual.split('.').slice(0, -1).join('.'))}</span>` : '') +
     lineTag +
     (willRecurse ? '<span class="fl-cyc">recursion</span>' : '') +
     (!hasKids && !willRecurse && !isRoot ? '<span class="fl-leaf">leaf</span>' : '');
@@ -1263,10 +1289,14 @@ function renderGraph() {
       .attr('opacity', isRoot ? .9 : .55);
     const label = g.append('text').attr('x', r + 5).attr('y', 3.5)
       .attr('font-weight', isRoot ? 700 : 400)
+      .attr('font-style', d.isModule ? 'italic' : 'normal')
       .style('fill', isRoot ? 'var(--ink)' : 'var(--ink-dim)')
-      .text(d.name.length > 26 ? d.name.slice(0, 24) + '…' : d.name);
+      .text(() => {
+        const nm = d.isModule ? d.path.split('/').pop() : d.name;
+        return nm.length > 26 ? nm.slice(0, 24) + '…' : nm;
+      });
     // file suffix for cross-file clarity when focused/selected
-    if ((STATE.selected || STATE.focus) && d.path) {
+    if ((STATE.selected || STATE.focus) && d.path && !d.isModule) {
       g.append('text').attr('x', r + 5).attr('y', 13).attr('class', 'sub')
         .text(d.path.split('/').pop());
     }
@@ -1350,10 +1380,10 @@ function setFocus(type, id) {
   if (STATE.focus) {
     fb.classList.add('on');
     if (type === 'file') {
-      $('#focusName').innerHTML = `<span class="ki" style="color:var(--file)">${KI.file}</span>${id}`;
+      $('#focusName').innerHTML = `<span class="ki doc">${ICON.doc}</span>${escHtml(id)}`;
     } else {
       const d = MODEL.defsById.get(id);
-      $('#focusName').innerHTML = `<span class="ki" style="color:${kindColor(d.kind)}">${KI[d.kind]}</span>${d.qual}`;
+      $('#focusName').innerHTML = `<span class="ki ${d.kind}">${KI[d.kind]}</span>${escHtml(d.qual)}`;
     }
   } else fb.classList.remove('on');
   renderTree(); renderCenter();
@@ -1365,7 +1395,7 @@ function renderDetail(id) {
   const box = $('#detail');
   if (!d) { box.classList.remove('on'); return; }
   box.classList.add('on');
-  $('#dtKind').textContent = d.kind;
+  $('#dtKind').textContent = d.isModule ? 'module code' : d.kind;
   $('#dtKind').style.color = kindColor(d.kind);
   $('#dtName').textContent = d.qual;
   $('#dtPath').textContent = `${d.path}:${d.line}`;
@@ -1378,7 +1408,7 @@ function renderDetail(id) {
     if (!arr.length) html += `<div class="dt-none">none</div>`;
     else html += arr.map(x => {
       const off = STATE.disabled.has(x.id);
-      return `<div class="dt-item${off ? ' off' : ''}" data-goto="${x.id}"><span class="ki" style="color:${kindColor(x.kind)}">${KI[x.kind]}</span><span class="txt" title="${x.qual} · ${x.path}${off ? ' · excluded' : ''}">${x.qual}</span></div>`;
+      return `<div class="dt-item${off ? ' off' : ''}" data-goto="${x.id}"><span class="ki ${x.kind}">${KI[x.kind]}</span><span class="txt" title="${escHtml(x.qual)} · ${x.path}${off ? ' · excluded' : ''}">${escHtml(x.qual)}</span></div>`;
     }).join('');
     return html;
   };
@@ -1391,7 +1421,6 @@ function renderDetail(id) {
 /* ---------- CODE PANEL ---------- */
 let codeCollapsedByUser = true;  // panel starts collapsed until a symbol is picked
 
-const escHtml = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const PY_KW = /\b(def|class|return|if|elif|else|for|while|try|except|finally|with|as|import|from|raise|yield|lambda|async|await|pass|break|continue|global|nonlocal|assert|del|in|is|not|and|or|None|True|False|self|cls)\b/g;
 
 /* highlight one already-escaped line; `resolve(name)` -> def id | null */
@@ -1463,7 +1492,7 @@ function showCode(id) {
 
   $('#cpEmpty').style.display = 'none';
   $('#cpKi').textContent = KI[d.kind];
-  $('#cpKi').style.color = kindColor(d.kind);
+  $('#cpKi').className = 'ki ' + d.kind;
   $('#cpName').textContent = d.qual;
   $('#cpPath').textContent = d.path;
   $('#cpPath').title = d.path;
@@ -1537,7 +1566,7 @@ function loadFile(f) { const rd = new FileReader(); rd.onload = () => handleArch
 // header
 const THEMES = ['deep', 'slate'];
 const THEME_LABEL = { deep: 'Deep dark', slate: 'Lighter slate' };
-let themeIdx = 0;
+let themeIdx = 1;
 function applyTheme() {
   const t = THEMES[themeIdx];
   document.documentElement.setAttribute('data-theme', t);
