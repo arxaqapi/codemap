@@ -306,6 +306,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .flow-row.is-guess .fl-name::before{content:'?';margin-right:5px;font-weight:700;color:var(--ink-faint)}
 .dt-item.guessed{opacity:.6}
 .dt-item .txt .c{color:var(--ink-faint);font-size:9.5px;margin-left:4px}
+.navctl{display:flex;gap:3px;flex:none}
+.navctl button{width:26px;height:26px;border-radius:7px;background:var(--bg2);
+  border:1px solid var(--line2);color:var(--ink-dim);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;transition:.12s}
+.navctl button:hover:not(:disabled){color:var(--ink);border-color:var(--ink-faint)}
+.navctl button:disabled{opacity:.32;cursor:default}
 .ver{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);
   border:1px solid var(--line2);border-radius:8px;padding:1.5px 7px;flex:none;align-self:center}
 .brand .ver{margin-left:10px}
@@ -392,6 +398,10 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
       <span class="di-label">Depth</span>
       <input type="range" id="depth" min="1" max="6" value="2" step="1">
       <span class="di-val" id="depthVal">2</span>
+    </div>
+    <div class="navctl">
+      <button id="navBack" disabled title="Back"><svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 2.5 4 6l3.5 3.5"/></svg></button>
+      <button id="navFwd" disabled title="Forward"><svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 2.5 8 6l-3.5 3.5"/></svg></button>
     </div>
     <div class="mode-toggle" id="viewToggle" title="Center display">
       <button data-view="flow" class="active">⤵ Flow</button>
@@ -1383,7 +1393,7 @@ def analyze(files_json):
     return json.dumps(Analyzer(files).run())
 `;
 
-const APP_VERSION = 'v0.0.17';
+const APP_VERSION = 'v0.0.18';
 const PYODIDE_URL = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';
 let PYODIDE = null;
 
@@ -1460,6 +1470,7 @@ async function buildAndLaunch(repo, pyFiles) {
   STATE = { view: 'flow', mode: 'calls', depth: 2, kinds: new Set(['function', 'class', 'type', 'file']), showGuess: true, archSel: null, focus: null, selected: null, search: '', disabled: new Set(), force: { ...FORCE_DEFAULTS } };
   document.querySelectorAll('#chips .chip:not(#chipGuess)').forEach(c => c.classList.toggle('on', STATE.kinds.has(c.dataset.k)));
   $('#chipGuess').classList.toggle('on', STATE.showGuess);
+  navReset();
   syncForceSliders();
   codeState = { path: null };
   syncViewToggle();
@@ -2198,6 +2209,7 @@ function renderArch() {
     restyle();
     if (STATE.archSel) renderFileDetail(n.id);
     else $('#detail').classList.remove('on');
+    navPush();
   });
   node.on('dblclick', (e, n) => {
     e.stopPropagation();
@@ -2207,7 +2219,7 @@ function renderArch() {
     else setFocus('file', n.id);
   });
   svg.on('click.arch', () => {
-    if (STATE.archSel) { STATE.archSel = null; restyle(); $('#detail').classList.remove('on'); }
+    if (STATE.archSel) { STATE.archSel = null; restyle(); $('#detail').classList.remove('on'); navPush(); }
   });
 
   const degree = new Map(nodes.map(n => [n.id, 0]));
@@ -2280,6 +2292,7 @@ function renderFileDetail(path) {
     STATE.archSel = it.dataset.gofile;
     if (renderArch._restyle) renderArch._restyle();
     renderFileDetail(it.dataset.gofile);
+    navPush();
   }));
   box.querySelectorAll('[data-goto]').forEach(it => it.addEventListener('click', () => {
     STATE.view = 'flow';
@@ -2291,6 +2304,82 @@ function renderFileDetail(path) {
 /* =========================================================================
    (6) SELECTION / FOCUS / DETAIL
    ========================================================================= */
+/* =========================================================================
+   NAVIGATION HISTORY — back / forward through selection, focus and file
+   locations (Alt+Left / Alt+Right, mouse side buttons, topbar chevrons)
+   ========================================================================= */
+const NAV = { stack: [], pos: -1, lock: false, MAX: 150 };
+
+const navSnapshot = () => ({
+  view: STATE.view,
+  selected: STATE.selected,
+  focus: STATE.focus ? { ...STATE.focus } : null,
+  archSel: STATE.archSel,
+});
+const navSame = (a, b) => a && b &&
+  a.selected === b.selected && a.archSel === b.archSel &&
+  ((!a.focus && !b.focus) ||
+   (a.focus && b.focus && a.focus.type === b.focus.type && a.focus.id === b.focus.id));
+
+const navLabel = s => {
+  if (!s) return '';
+  if (s.archSel) return s.archSel.split('/').pop();
+  if (s.selected) {
+    const d = MODEL && MODEL.defsById.get(s.selected);
+    return d ? d.qual : s.selected;
+  }
+  if (s.focus) return s.focus.type === 'file' ? s.focus.id.split('/').pop() : s.focus.id.split('::').pop();
+  return 'overview';
+};
+
+function navPush() {
+  if (NAV.lock) return;
+  const snap = navSnapshot();
+  const cur = NAV.stack[NAV.pos];
+  if (cur && navSame(cur, snap)) { cur.view = snap.view; navSync(); return; }
+  NAV.stack.length = NAV.pos + 1;              // navigating forward drops the redo branch
+  NAV.stack.push(snap);
+  if (NAV.stack.length > NAV.MAX) NAV.stack.shift();
+  NAV.pos = NAV.stack.length - 1;
+  navSync();
+}
+
+function navApply(snap) {
+  NAV.lock = true;
+  try {
+    STATE.view = snap.view;
+    STATE.selected = snap.selected;
+    STATE.focus = snap.focus ? { ...snap.focus } : null;
+    STATE.archSel = snap.archSel;
+    syncViewToggle();
+    refreshFocusBar();
+    renderTree();
+    renderCenter();
+    if (STATE.view === 'arch' && STATE.archSel) renderFileDetail(STATE.archSel);
+    else if (STATE.selected) { renderDetail(STATE.selected); showCode(STATE.selected); }
+    else $('#detail').classList.remove('on');
+    if (STATE.selected) {
+      const r = $(`.trow[data-id="${cssEsc(STATE.selected)}"]`);
+      if (r) r.scrollIntoView({ block: 'nearest' });
+    }
+  } finally { NAV.lock = false; }
+  navSync();
+}
+
+function navBack() { if (NAV.pos > 0) { NAV.pos--; navApply(NAV.stack[NAV.pos]); } }
+function navFwd()  { if (NAV.pos < NAV.stack.length - 1) { NAV.pos++; navApply(NAV.stack[NAV.pos]); } }
+function navReset() { NAV.stack = []; NAV.pos = -1; navPush(); }
+
+function navSync() {
+  const b = $('#navBack'), f = $('#navFwd');
+  if (!b) return;
+  const prev = NAV.stack[NAV.pos - 1], next = NAV.stack[NAV.pos + 1];
+  b.disabled = !prev;
+  f.disabled = !next;
+  b.title = prev ? `Back to ${navLabel(prev)}  (Alt+\u2190)` : 'Back  (Alt+\u2190)';
+  f.title = next ? `Forward to ${navLabel(next)}  (Alt+\u2192)` : 'Forward  (Alt+\u2192)';
+}
+
 function selectDef(id, scroll) {
   STATE.selected = id;
   if (STATE.focus && STATE.focus.type === 'symbol') STATE.focus = { type: 'symbol', id }; // keep in sync
@@ -2302,24 +2391,30 @@ function selectDef(id, scroll) {
     const r = $(`.trow[data-id="${cssEsc(id)}"]`);
     if (r) r.scrollIntoView({ block: 'nearest' });
   }
+  navPush();
 }
 
-function setFocus(type, id) {
-  if (STATE.focus && STATE.focus.type === type && STATE.focus.id === id) { STATE.focus = null; }
-  else STATE.focus = { type, id };
-  if (type === 'symbol') STATE.selected = id;
+function refreshFocusBar() {
   const fb = $('#focusbar');
-  if (STATE.focus) {
+  if (!STATE.focus) { fb.classList.remove('on'); return; }
     fb.classList.add('on');
+  const { type, id } = STATE.focus;
     if (type === 'file') {
       $('#focusName').innerHTML = `<span class="ki doc">${ICON.doc}</span>${escHtml(id)}`;
     } else {
       const d = MODEL.defsById.get(id);
       $('#focusName').innerHTML = `<span class="ki ${d.kind}">${KI[d.kind]}</span>${escHtml(d.qual)}`;
     }
-  } else fb.classList.remove('on');
+}
+
+function setFocus(type, id) {
+  if (STATE.focus && STATE.focus.type === type && STATE.focus.id === id) { STATE.focus = null; }
+  else STATE.focus = { type, id };
+  if (type === 'symbol') STATE.selected = id;
+  refreshFocusBar();
   renderTree(); renderCenter();
   if (type === 'symbol') renderDetail(id);
+  navPush();
 }
 
 function renderDetail(id) {
@@ -2579,7 +2674,20 @@ $('#codeBody').addEventListener('click', e => {
   selectDef(link.dataset.goto, true);
 });
 document.querySelectorAll('.ver').forEach(e => e.textContent = APP_VERSION);
+$('#navBack').addEventListener('click', navBack);
+$('#navFwd').addEventListener('click', navFwd);
+window.addEventListener('keydown', e => {
+  if (!MODEL) return;
+  if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); navBack(); }
+  else if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navFwd(); }
+});
+window.addEventListener('mouseup', e => {
+  if (!MODEL) return;
+  if (e.button === 3) { e.preventDefault(); navBack(); }
+  else if (e.button === 4) { e.preventDefault(); navFwd(); }
+});
 $('#viewToggle').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+  setTimeout(navPush, 0);   // same location -> just refreshes the stored view
   STATE.view = b.dataset.view;
   syncViewToggle();
   renderCenter();
@@ -2599,6 +2707,7 @@ $('#depth').addEventListener('input', e => {
 $('#chipGuess').addEventListener('click', () => {
   STATE.showGuess = !STATE.showGuess;
   $('#chipGuess').classList.toggle('on', STATE.showGuess);
+  navReset();
   renderCenter();
 });
 $('#chips').querySelectorAll('.chip:not(#chipGuess)').forEach(c => c.addEventListener('click', () => {
@@ -2636,6 +2745,7 @@ $('#focusClear').addEventListener('click', () => {
   STATE.focus = null; STATE.selected = null;
   $('#focusbar').classList.remove('on'); $('#detail').classList.remove('on');
   renderTree(); renderCenter();
+  navPush();
 });
 
 // zoom buttons
