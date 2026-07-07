@@ -128,6 +128,8 @@ header .icon-btn:hover{border-color:var(--accent);color:var(--ink)}
 .chip[data-k="class"].on{border-color:var(--cls)}
 .chip[data-k="type"].on{border-color:var(--type)}
 .chip[data-k="file"].on{border-color:var(--file)}
+#chipGuess.on{border-color:var(--ink-faint)}
+.sw-dot{background:none!important;border:1.5px dotted var(--ink-dim);border-radius:50%}
 .tree{flex:1;overflow-y:auto;padding:6px 0 40px}
 .tnode{font-family:var(--mono);font-size:12px;user-select:none}
 .trow{display:flex;align-items:center;gap:6px;padding:3px 10px;cursor:pointer;
@@ -180,6 +182,7 @@ header .icon-btn:hover{border-color:var(--accent);color:var(--ink)}
 .edge{fill:none;stroke-linecap:round}
 .edge-arrow-calls{fill:var(--calls)}
 .edge-arrow-refs{fill:var(--refs)}
+.edge-arrow-extends{fill:var(--cls)}
 
 /* floating controls */
 .ctl{position:absolute;background:rgba(15,22,32,.92);backdrop-filter:blur(8px);
@@ -294,6 +297,16 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .flow-row .fl-ln{margin-left:auto;color:var(--ink-faint);font-size:10px;
   background:var(--bg);padding:1px 7px;border-radius:20px;flex:none;border:1px solid var(--line)}
 .flow-row.is-ref .fl-name{font-style:italic;opacity:.85}
+.flow-row.is-ext .fl-name::after{content:'extends';margin-left:7px;font-size:8.5px;font-weight:600;
+  letter-spacing:.5px;text-transform:uppercase;color:var(--cls);
+  border:1px solid var(--cls);border-radius:8px;padding:1px 6px;opacity:.8;vertical-align:1px}
+.flow-row.is-imp .fl-name::after{content:'import';margin-left:7px;font-size:8.5px;font-weight:600;
+  letter-spacing:.5px;text-transform:uppercase;color:var(--ink-faint);
+  border:1px solid var(--line2);border-radius:8px;padding:1px 6px;opacity:.9;vertical-align:1px}
+.flow-row.is-guess{opacity:.55}
+.flow-row.is-guess .fl-name::before{content:'?';margin-right:5px;font-weight:700;color:var(--ink-faint)}
+.dt-item.guessed{opacity:.6}
+.dt-item .gq{font-weight:700;color:var(--ink-faint)}
 .flow-row .fl-cyc{flex:none;font-size:9px;color:var(--refs);background:rgba(232,163,61,.12);
   padding:1px 7px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px}
 .flow-row .fl-leaf{flex:none;font-size:9px;color:var(--ink-faint);opacity:.55}
@@ -358,7 +371,7 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
     <div class="dz-sub">Supports <b>.zip</b>, <b>.tar.gz</b>, <b>.tgz</b>, <b>.tar</b> — parsed entirely in your browser</div>
     <button class="btn primary" id="pickBtn">Choose file</button>
     <input type="file" id="fileInput" accept=".zip,.tar,.gz,.tgz" hidden>
-    <div class="dz-hint">Tip: on GitHub, use the green <b>Code ▾ → Download ZIP</b> button, then drop the file here.</div>
+    <div class="dz-hint">Tip: on GitHub, use the green <b>Code ▾ → Download ZIP</b> button, then drop the file here.<br>First analysis downloads a real Python parser (~7&thinsp;MB, cached after that).</div>
   </div>
   <div class="status" id="status"></div>
   <div class="foot">Nothing is uploaded to a server · your code stays in the tab<br>Static heuristic analysis — no code is executed</div>
@@ -397,6 +410,7 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
       <button class="chip on" data-k="class"><span class="sw" style="background:var(--cls)"></span>class</button>
       <button class="chip on" data-k="type"><span class="sw" style="background:var(--type)"></span>type</button>
       <button class="chip on" data-k="file" title="Top-level script code (module bodies, __main__ blocks)"><span class="sw" style="background:var(--file)"></span>script</button>
+      <button class="chip on" id="chipGuess" title="Name-match edges the engine could not prove — dotted in the graph"><span class="sw sw-dot"></span>guesses</button>
     </div>
     <div class="incl-bar">
       <span class="ib-label">Analysis</span>
@@ -444,6 +458,8 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
     <div class="legend" id="legend" style="display:none">
       <div class="lr"><span class="sw" style="border-color:var(--calls)"></span>calls out to</div>
       <div class="lr"><span class="sw" style="border-color:var(--refs)"></span>referenced by</div>
+      <div class="lr"><span class="sw" style="border-color:var(--cls);border-top-style:dashed"></span>extends</div>
+      <div class="lr"><span class="sw" style="border-color:var(--ink-faint);border-top-style:dotted"></span>guessed</div>
       <div class="lr" style="margin-top:2px"><span class="dt" style="background:var(--fn)"></span>func &nbsp;<span class="dt" style="background:var(--cls)"></span>class &nbsp;<span class="dt" style="background:var(--type)"></span>type &nbsp;<span class="dt" style="background:var(--file)"></span>script</div>
     </div>
 
@@ -496,6 +512,7 @@ let STATE = {
   mode: 'calls',           // 'calls' | 'refs'
   depth: 2,
   kinds: new Set(['function', 'class', 'type', 'file']),
+  showGuess: true,
   focus: null,             // {type:'symbol'|'file', id}
   selected: null,          // def id highlighted
   search: '',
@@ -536,7 +553,7 @@ async function handleArchive(name, buf) {
     spinner(`Analysing ${py.length} Python files…`);
     await new Promise(r => setTimeout(r, 30));
     const repo = name.replace(/\.(zip|tar\.gz|tgz|tar|gz)$/i, '');
-    buildAndLaunch(repo, py);
+    await buildAndLaunch(repo, py);
   } catch (e) {
     status('✕ ' + e.message, true);
   }
@@ -627,6 +644,42 @@ function parseFile(path, src) {
   const defRe = /^(\s*)(async\s+def|def|class)\s+([A-Za-z_]\w*)/;
   const typeRe = /^([A-Za-z_]\w*)\s*(?::\s*TypeAlias)?\s*=\s*(.+)$/;
 
+  /* ---- imports: "import a.b as m", "from .x import A as B, C", "(…)" multi-line, "import *" */
+  const imports = [];            // {line, kind:'plain'|'from', mod, level, alias?, items?}
+  const importLines = new Set(); // 1-based lines occupied by import statements
+  for (let i = 0; i < lines.length; i++) {
+    const t = code[i].trim();
+    let mm;
+    if ((mm = t.match(/^from\s+([.\w]+)\s+import\s+(.*)$/))) {
+      let rest = mm[2], endI = i;
+      if (rest.includes('(') && !rest.includes(')')) {
+        while (endI + 1 < lines.length) {
+          endI++; rest += ' ' + code[endI].trim();
+          if (code[endI].includes(')')) break;
+        }
+      }
+      rest = rest.replace(/[()]/g, '');
+      const level = (mm[1].match(/^\.*/) || [''])[0].length;
+      const mod = mm[1].slice(level);
+      const items = rest.trim() === '*' ? '*' :
+        rest.split(',').map(s => s.trim()).filter(Boolean).map(s => {
+          const p = s.split(/\s+as\s+/);
+          return { name: p[0].trim(), alias: (p[1] || p[0]).trim() };
+        }).filter(it => /^[A-Za-z_]\w*$/.test(it.name) && /^[A-Za-z_]\w*$/.test(it.alias));
+      imports.push({ line: i + 1, kind: 'from', mod, level, items });
+      for (let k = i; k <= endI; k++) importLines.add(k + 1);
+      i = endI;
+    } else if ((mm = t.match(/^import\s+(.+)$/))) {
+      for (const part of mm[1].split(',')) {
+        const p = part.trim().split(/\s+as\s+/);
+        const mod = p[0].trim();
+        if (!/^[\w.]+$/.test(mod)) continue;
+        imports.push({ line: i + 1, kind: 'plain', mod, level: 0, alias: p[1] ? p[1].trim() : null });
+      }
+      importLines.add(i + 1);
+    }
+  }
+
   for (let i = 0; i < lines.length; i++) {
     const c = code[i];
     if (c.trim() === '') continue;
@@ -678,6 +731,26 @@ function parseFile(path, src) {
     while (ds > 1 && /^\s*@/.test(code[ds - 2])) ds--;
     d.decoStart = ds;
   }
+  // capture base-class names from class signatures (full multi-line signature)
+  for (const d of defs) {
+    d.baseNames = [];
+    if (d.kind !== 'class') continue;
+    const sig = code.slice(d.line - 1, Math.max(d.bodyStart, d.line)).join(' ');
+    const bm = sig.match(/^\s*class\s+\w+\s*\(([^)]*)\)/);
+    if (!bm) continue;
+    let depth = 0, cur = '';
+    const parts = [];
+    for (const ch of bm[1]) {
+      if (ch === '[') depth++;
+      else if (ch === ']') depth--;
+      if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; } else cur += ch;
+    }
+    parts.push(cur);
+    for (let p of parts) {
+      p = p.trim().replace(/\[.*$/, '');            // Generic[T] → Generic
+      if (/^[A-Za-z_][\w.]*$/.test(p) && !p.includes('=')) d.baseNames.push(p);
+    }
+  }
   // synthetic <module> symbol: scripts with top-level executable code
   // (calls outside any def/class would otherwise vanish from the graph)
   const topSpans = defs.filter(d => !d.parent).map(d => [d.decoStart, d.end]);
@@ -698,7 +771,7 @@ function parseFile(path, src) {
       parent: null, children: [], calls: new Set(), refBy: new Set(), callSites: [],
       isModule: true });
   }
-  return { path, defs, code, lines };
+  return { path, defs, code, lines, imports, importLines };
 }
 const indentOf = s => (s.match(/^(\s*)/)[1] || '').length;
 
@@ -708,52 +781,283 @@ const indentOf = s => (s.match(/^(\s*)/)[1] || '').length;
 function analyse(repo, pyFiles) {
   const files = pyFiles.map(f => parseFile(f.path, f.text));
   const defsById = new Map();
-  const byName = new Map();   // simple name -> [def]
-  for (const f of files) for (const d of f.defs) {
-    defsById.set(d.id, d);
-    if (!byName.has(d.name)) byName.set(d.name, []);
-    byName.get(d.name).push(d);
+  const byName = new Map();     // simple name -> [def]
+  const topByFile = new Map();  // path -> Map(name -> top-level def)
+  const fileByPath = new Map(files.map(f => [f.path, f]));
+  for (const f of files) {
+    const top = new Map();
+    topByFile.set(f.path, top);
+    for (const d of f.defs) {
+      defsById.set(d.id, d);
+      if (!byName.has(d.name)) byName.set(d.name, []);
+      byName.get(d.name).push(d);
+      if (!d.parent && !d.isModule) top.set(d.name, d);
+      d.extends = new Set(); d.extendedBy = new Set();
+    }
   }
 
-  // resolve calls & references inside each def body
-  const callTokenRe = /([A-Za-z_]\w*)\s*\(/g;                       // callables
-  const refTokenRe = /(?<![.\w])([A-Za-z_]\w*)(?![\w(])/g;          // bare name references (types etc.)
+  /* ---- module resolution: dotted import path -> project file. Suffix matching
+         tolerates archive root folders ("repo-main/") and src/ layouts. ---- */
+  const keyOf = p => p.replace(/\.py$/, '').replace(/\/__init__$/, '');
+  const modKeys = files.map(f => ({ segs: keyOf(f.path).split('/'), f }));
+  const byExact = new Map(modKeys.map(k => [k.segs.join('/'), k.f]));
+  const resolveModule = (fromPath, mod, level) => {
+    if (level > 0) {                               // relative: from .x / from ..y
+      const base = fromPath.split('/'); base.pop();
+      for (let i = 1; i < level; i++) base.pop();
+      const segs = base.concat(mod ? mod.split('.') : []);
+      return byExact.get(segs.join('/')) || null;
+    }
+    if (!mod) return null;
+    const want = mod.split('.');
+    const hits = modKeys.filter(k =>
+      k.segs.length >= want.length &&
+      want.every((s, i) => k.segs[k.segs.length - want.length + i] === s));
+    if (!hits.length) return null;
+    hits.sort((a, b) => a.segs.length - b.segs.length);  // closest to archive root wins
+    return hits[0].f;
+  };
+  const moduleDefOf = path => {
+    const ff = fileByPath.get(path);
+    return (ff && ff.defs.find(x => x.isModule)) || null;
+  };
+
+  /* ---- per-file name bindings from imports. An "external" binding means the name
+         is known to come from outside the project — never guess a target for it. */
+  for (const f of files) {
+    f.bindings = new Map();
+    f.starFiles = [];
+    for (const im of f.imports) {
+      if (im.kind === 'plain') {
+        const tf = resolveModule(f.path, im.mod, 0);
+        if (im.alias) f.bindings.set(im.alias, tf ? { type: 'module', file: tf.path } : { type: 'external' });
+        else f.bindings.set(im.mod.split('.')[0], { type: 'modpath', mod: im.mod, known: !!tf });
+      } else {
+        const tf = resolveModule(f.path, im.mod, im.level);
+        if (im.items === '*') { if (tf) f.starFiles.push(tf.path); continue; }
+        for (const it of im.items) {
+          f.bindings.set(it.alias, tf || im.level > 0
+            ? { type: 'symbol', file: tf ? tf.path : null, name: it.name, mod: im.mod, level: im.level }
+            : { type: 'external' });
+        }
+      }
+    }
+  }
+
+  /* symbol in a module's top level, following re-export chains (from .core import Engine
+     in an __init__.py makes pkg.Engine resolvable) */
+  function lookupSymbol(path, name, seen = new Set()) {
+    if (!path) return null;
+    const key = path + '|' + name;
+    if (seen.has(key)) return null;
+    seen.add(key);
+    const top = topByFile.get(path);
+    if (top && top.has(name)) return top.get(name);
+    const ff = fileByPath.get(path);
+    if (!ff) return null;
+    const b = ff.bindings.get(name);
+    if (b && b.type === 'symbol') return lookupSymbol(b.file, b.name, seen);
+    for (const sp of ff.starFiles) {
+      const hit = lookupSymbol(sp, name, seen);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  /* method lookup through a class and its (resolved) bases */
+  function findMethod(cls, name, seen = new Set()) {
+    if (!cls || seen.has(cls.id)) return null;
+    seen.add(cls.id);
+    for (const cid of cls.children) {
+      const c = defsById.get(cid);
+      if (c && c.name === name) return c;
+    }
+    for (const bid of cls.extends) {
+      const hit = findMethod(defsById.get(bid), name, seen);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  const findSuperMethod = (cls, name) => {
+    if (!cls) return null;
+    const seen = new Set([cls.id]);
+    for (const bid of cls.extends) {
+      const hit = findMethod(defsById.get(bid), name, seen);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  const enclosingClass = d => {
+    let p = d.parent ? defsById.get(d.parent) : null;
+    while (p && p.kind !== 'class') p = p.parent ? defsById.get(p.parent) : null;
+    return p;
+  };
+  const byLocality = (cands, path) => {           // tie-break: longest shared path prefix
+    const segs = path.split('/');
+    let best = null, bestN = -1;
+    for (const c of cands) {
+      const cs = c.path.split('/');
+      let n = 0;
+      while (n < segs.length && n < cs.length && segs[n] === cs[n]) n++;
+      if (n > bestN) { bestN = n; best = c; }
+    }
+    return best;
+  };
+
+  /* walk a dotted chain into a module file: symbol first, then submodule */
+  function chainIntoModule(path, rest, d) {
+    if (!path) return null;
+    if (!rest.length) {
+      const md = moduleDefOf(path);
+      return md && md !== d ? md : null;
+    }
+    const sym = lookupSymbol(path, rest[0]);
+    if (sym) {
+      if (rest.length === 1) return sym === d ? null : sym;
+      if (sym.kind === 'class') return findMethod(sym, rest[1]);
+      return null;
+    }
+    const sub = byExact.get(keyOf(path) + '/' + rest[0]);
+    return sub ? chainIntoModule(sub.path, rest.slice(1), d) : null;
+  }
+
+  /* ---- the resolver: name chain -> def, using scope-aware priority:
+     self/cls -> inferred locals -> imports -> same file -> star imports ->
+     unique global -> path locality. Known-external names are never guessed. */
+  function resolveName(f, d, chain, ctx = {}) {
+    const n0 = chain[0];
+    if (n0 === 'self' || n0 === 'cls') {
+      if (chain.length < 2) return null;
+      return findMethod(enclosingClass(d), chain[1]);
+    }
+    if (ctx.vars && ctx.vars.has(n0)) {           // e = Engine() … e.run()
+      if (chain.length < 2) return null;
+      return findMethod(defsById.get(ctx.vars.get(n0)), chain[1]);
+    }
+    const b = f.bindings.get(n0);
+    if (b) {
+      if (b.type === 'external') return null;
+      if (b.type === 'symbol') {
+        const base = lookupSymbol(b.file, b.name);
+        if (!base) {                              // "from pkg import mod" — item is a submodule
+          const sub = resolveModule(f.path, b.mod ? b.mod + '.' + b.name : b.name, b.level || 0);
+          return sub ? chainIntoModule(sub.path, chain.slice(1), d) : null;
+        }
+        if (chain.length === 1) return base === d ? null : base;
+        if (base.kind === 'class') return findMethod(base, chain[1]);
+        return null;
+      }
+      if (b.type === 'module') return chainIntoModule(b.file, chain.slice(1), d);
+      if (b.type === 'modpath') {                 // import a.b.c → walk declared segments
+        if (!b.known) return null;
+        const modSegs = b.mod.split('.');
+        let k = 1;
+        while (k < chain.length && k < modSegs.length && chain[k] === modSegs[k]) k++;
+        const tf = resolveModule(f.path, modSegs.slice(0, k).join('.'), 0);
+        return tf ? chainIntoModule(tf.path, chain.slice(k), d) : null;
+      }
+    }
+    if (chain.length === 1) {
+      const top = topByFile.get(f.path);
+      if (top && top.has(n0) && top.get(n0) !== d) return top.get(n0);
+      const same = (byName.get(n0) || []).find(c => c.path === f.path && c.id !== d.id);
+      if (same) return same;
+      for (const sp of f.starFiles) {
+        const hit = lookupSymbol(sp, n0);
+        if (hit && hit !== d) return hit;
+      }
+      const all = (byName.get(n0) || []).filter(c => c.id !== d.id && !c.isModule);
+      const tops = all.filter(c => !c.parent);
+      const pool = tops.length ? tops : all;
+      if (!pool.length) return null;
+      if (pool.length === 1) return pool[0];
+      return byLocality(pool, f.path);
+    }
+    // dotted chain with an unresolved receiver
+    const recv = resolveName(f, d, [n0], ctx);
+    if (recv && recv.kind === 'class') {
+      const mm = findMethod(recv, chain[1]);
+      if (mm && mm !== d) return mm;
+    }
+    // obj.method(): link only when the method name is unambiguous project-wide
+    const last = chain[chain.length - 1];
+    const methods = (byName.get(last) || []).filter(c => c.parent && c.id !== d.id);
+    return methods.length === 1 ? methods[0] : null;
+  }
+
+  /* ---- pass A: inheritance (must precede body scans; findMethod walks it) ---- */
+  for (const f of files) for (const d of f.defs) {
+    if (d.kind !== 'class' || !d.baseNames.length) continue;
+    for (const bn of d.baseNames) {
+      const t = resolveName(f, d, bn.split('.'));
+      if (t && t.kind === 'class' && t.id !== d.id) {
+        d.extends.add(t.id);
+        t.extendedBy.add(d.id);
+      }
+    }
+  }
+
+  /* ---- pass B: resolve calls & references inside each def body ---- */
+  const callChainRe = /(?<![\w.])([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*\(/g;
+  const refTokenRe = /(?<![.\w])([A-Za-z_]\w*)(?![\w(])/g;
+  const superRe = /\bsuper\s*\(\s*\)\s*\.\s*([A-Za-z_]\w*)\s*\(/g;
+  const assignRe = /^\s*([A-Za-z_]\w*)\s*(?::[^=]*)?=(?!=)\s*([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*\(/;
 
   for (const f of files) {
     for (const d of f.defs) {
       if (d.kind === 'type') continue;
-      const resolve = nm => {
-        const cands = byName.get(nm); if (!cands) return null;
-        const same = cands.find(c => c.path === d.path && c.id !== d.id);
-        if (same) return same.id;
-        const uniq = cands.filter(c => c.id !== d.id);
-        if (uniq.length === 1) return uniq[0].id;
-        return uniq.length ? uniq[0].id : null;
-      };
-      // lines occupied by nested child defs — attribute those to the child, not here
-      // (for the synthetic <module> symbol, every top-level def is a "child")
       const childSpans = (d.isModule
         ? f.defs.filter(c => !c.parent && c !== d)
         : f.defs.filter(c => c.parent === d.id))
         .map(c => [c.decoStart || c.line, c.end]);
       const inChild = ln => childSpans.some(([a, b]) => ln >= a && ln <= b);
 
+      const ctx = { vars: new Map() };
       const seenCall = new Set();
-      const firstAt = new Map();   // targetId -> {line, name, viaCall}
-      // start at decorators (and full multi-line signature), not just the last signature line
+      const firstAt = new Map();   // targetId -> {line, name, via, viaCall}
+      const hit = (t, ln, name, via) => {
+        if (t && t.id !== d.id && !firstAt.has(t.id))
+          firstAt.set(t.id, { line: ln, name, via, viaCall: via === 'call' });
+      };
+
+      // the <module> symbol owns the file's import lines: each import is a dependency
+      if (d.isModule) {
+        for (const im of f.imports) {
+          if (im.kind === 'from' && im.items !== '*') {
+            for (const it of im.items) hit(resolveName(f, d, [it.alias]), im.line, it.alias, 'import');
+          } else {
+            const tf = resolveModule(f.path, im.mod, im.level);
+            if (tf) hit(moduleDefOf(tf.path), im.line, im.mod || tf.path.split('/').pop(), 'import');
+          }
+        }
+      }
+
       for (let j = (d.decoStart || d.bodyStart) - 1; j < d.end; j++) {
         const ln = j + 1;
         if (inChild(ln)) continue;
+        if (f.importLines.has(ln)) continue;       // imports handled above
         const line = f.code[j]; if (!line) continue;
         let m;
-        callTokenRe.lastIndex = 0;
-        while ((m = callTokenRe.exec(line))) {
-          const nm = m[1];
-          if (RESERVED.has(nm)) continue;
-          if (ln === d.line && nm === d.name) continue;  // the def's own name in its signature
-          seenCall.add(nm);
-          const id = resolve(nm);
-          if (id && id !== d.id && !firstAt.has(id)) firstAt.set(id, { line: ln, name: nm, viaCall: true });
+
+        // local type inference: name = SomeClass(...)
+        if ((m = line.match(assignRe)) && !RESERVED.has(m[1])) {
+          const t = resolveName(f, d, m[2].split(/\s*\.\s*/), ctx);
+          if (t && t.kind === 'class') ctx.vars.set(m[1], t.id);
+        }
+        // super().method() -> resolve through base classes only
+        superRe.lastIndex = 0;
+        while ((m = superRe.exec(line)))
+          hit(findSuperMethod(enclosingClass(d), m[1]), ln, 'super().' + m[1], 'call');
+
+        callChainRe.lastIndex = 0;
+        while ((m = callChainRe.exec(line))) {
+          const chain = m[1].split(/\s*\.\s*/);
+          const nm = chain[0];
+          if (chain.length === 1 && RESERVED.has(nm)) continue;
+          if (nm === 'super') continue;            // handled above
+          if (ln === d.line && chain.length === 1 && nm === d.name) continue;
+          seenCall.add(nm); seenCall.add(chain[chain.length - 1]);
+          hit(resolveName(f, d, chain, ctx), ln, m[1].replace(/\s+/g, ''), 'call');
         }
         refTokenRe.lastIndex = 0;
         while ((m = refTokenRe.exec(line))) {
@@ -761,9 +1065,18 @@ function analyse(repo, pyFiles) {
           if (RESERVED.has(nm)) continue;
           if (ln === d.line && nm === d.name) continue;
           if (seenCall.has(nm)) continue;
+          if (ctx.vars.has(nm)) continue;          // local variables aren't dependencies
           if (nm.length <= 2 && /^[A-Z]+$/.test(nm)) continue;  // TypeVar noise
-          const id = resolve(nm);
-          if (id && id !== d.id && !firstAt.has(id)) firstAt.set(id, { line: ln, name: nm, viaCall: false });
+          hit(resolveName(f, d, [nm], ctx), ln, nm, 'ref');
+        }
+      }
+      // inheritance edges always present, even when the base only appears dotted
+      if (d.kind === 'class') {
+        for (const bid of d.extends) {
+          if (!firstAt.has(bid)) {
+            const bd = defsById.get(bid);
+            firstAt.set(bid, { line: d.line, name: bd ? bd.name : bid, via: 'extends', viaCall: false });
+          } else firstAt.get(bid).via = 'extends';
         }
       }
       // ordered call sites (source order), plus the unordered set the graph uses
@@ -777,7 +1090,6 @@ function analyse(repo, pyFiles) {
   for (const d of defsById.values())
     for (const t of d.calls) { const td = defsById.get(t); if (td) td.refBy.add(d.id); }
 
-  const fileByPath = new Map(files.map(f => [f.path, f]));
   const folderTree = buildFolderTree(files);
   return { name: repo, files, defsById, fileByPath, byName, folderTree };
 }
@@ -805,16 +1117,858 @@ function buildFolderTree(files) {
   return collapse(root);
 }
 
-function buildAndLaunch(repo, pyFiles) {
-  MODEL = analyse(repo, pyFiles);
+/* =========================================================================
+   PYTHON AST ENGINE — real parsing via Pyodide; the quick JS engine below
+   remains as an automatic fallback when the WASM runtime can't load.
+   ========================================================================= */
+const PY_ANALYZER = `"""Schema code analyzer — real AST + scope/type tracking, runs under Pyodide.
+
+Input:  JSON [{path, text}]
+Output: JSON {files:[{path, defs:[...], err}], stats:{...}}
+
+Def fields: id, name, kind(function|class|type|file), qual, path, line, end,
+parent, children[], callSites[{id,line,name,via,viaCall,conf}], extends[],
+isModule. Edge conf: 'sure' (scope/import/type-proven) or 'guess' (name match).
+"""
+import ast, json, builtins as _builtins
+
+BUILTIN_NAMES = set(dir(_builtins)) | {'self', 'cls', '__name__', '__file__', '__doc__', '__all__'}
+
+TYPING_HINTS = {'Union', 'Optional', 'List', 'Dict', 'Tuple', 'Set', 'Callable',
+                'Iterable', 'Iterator', 'Sequence', 'Mapping', 'Any', 'Type', 'Literal', 'Annotated'}
+
+
+# ---------------------------------------------------------------- values
+# ('class', def) ('inst', classdef) ('func', def) ('type', def)
+# ('mod', path) ('modseg', consumed_segs, declared) ('super', classdef) ('ext',)
+def wrap_def(d):
+    if d is None:
+        return None
+    k = d['kind']
+    if k == 'class':
+        return ('class', d)
+    if k == 'function':
+        return ('func', d)
+    if k == 'type':
+        return ('type', d)
+    if k == 'file':
+        return ('mod', d['path'])
+    return None
+
+
+class Analyzer:
+    def __init__(self, files):
+        self.files = files                       # path -> source text
+        self.mods = {}                           # path -> module record
+        self.defs_by_id = {}
+        self.by_name = {}                        # simple name -> [def]
+        self.top_by_file = {}                    # path -> {name: def}
+        self._ret_cache = {}
+        self._ret_busy = set()
+
+        keys = []
+        for p in files:
+            k = p[:-3] if p.endswith('.py') else p
+            if k.endswith('/__init__'):
+                k = k[:-len('/__init__')]
+            keys.append((k.split('/'), p))
+        self.mod_keys = keys
+        self.mod_exact = {'/'.join(s): p for s, p in keys}
+
+    # ------------------------------------------------------------ modules
+    def resolve_module(self, from_path, dotted, level):
+        if level > 0:
+            base = from_path.split('/')[:-1]
+            for _ in range(level - 1):
+                if base:
+                    base.pop()
+            segs = base + (dotted.split('.') if dotted else [])
+            return self.mod_exact.get('/'.join(segs))
+        if not dotted:
+            return None
+        want = dotted.split('.')
+        hits = [(s, p) for s, p in self.mod_keys
+                if len(s) >= len(want) and s[-len(want):] == want]
+        if not hits:
+            return None
+        hits.sort(key=lambda t: len(t[0]))
+        return hits[0][1]
+
+    def module_def(self, path):
+        m = self.mods.get(path)
+        if not m:
+            return None
+        return m['module_def']
+
+    # ------------------------------------------------------------ pass 1: parse & collect
+    def collect_all(self):
+        for path, text in self.files.items():
+            m = {'path': path, 'defs': [], 'bindings': {}, 'stars': [],
+                 'imports': [], 'module_def': None, 'err': False, 'tree': None,
+                 'module_vars': {}}
+            self.mods[path] = m
+            try:
+                tree = ast.parse(text)
+            except SyntaxError:
+                m['err'] = True
+                continue
+            m['tree'] = tree
+            self._collect(m, tree)
+            self.top_by_file[path] = {d['name']: d for d in m['defs']
+                                      if d['parent'] is None and not d.get('isModule')}
+
+    def _mkdef(self, m, name, kind, qual, node, parent, is_module=False):
+        d = {'id': m['path'] + '::' + qual, 'name': name, 'kind': kind,
+             'qual': qual, 'path': m['path'],
+             'line': node.lineno if node is not None else 1,
+             'end': getattr(node, 'end_lineno', None) or (node.lineno if node is not None else 1),
+             'parent': parent['id'] if parent else None, 'children': [],
+             'callSites': [], 'extends': [], 'extendedBy': [],
+             '_node': node, '_edges': {}, '_attr_types': {}}
+        if is_module:
+            d['isModule'] = True
+        if parent:
+            parent['children'].append(d['id'])
+        m['defs'].append(d)
+        self.defs_by_id[d['id']] = d
+        self.by_name.setdefault(name, []).append(d)
+        return d
+
+    def _is_type_alias(self, st):
+        if hasattr(ast, 'TypeAlias') and isinstance(st, ast.TypeAlias):
+            return st.name.id
+        tgt = None
+        if isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name):
+            ann = ast.unparse(st.annotation) if st.annotation is not None else ''
+            if 'TypeAlias' in ann:
+                return st.target.id
+            return None
+        if isinstance(st, ast.Assign) and len(st.targets) == 1 and isinstance(st.targets[0], ast.Name):
+            tgt = st.targets[0].id
+            v = st.value
+            if isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id in ('TypeVar', 'NewType', 'ParamSpec', 'TypeVarTuple'):
+                return tgt
+            if isinstance(v, ast.Subscript):
+                base = v.value
+                nm = base.id if isinstance(base, ast.Name) else (base.attr if isinstance(base, ast.Attribute) else '')
+                if nm in TYPING_HINTS or (tgt[:1].isupper() and nm and nm[:1].isupper()):
+                    return tgt
+            if isinstance(v, ast.BinOp) and isinstance(v.op, ast.BitOr) and tgt[:1].isupper():
+                return tgt
+        return None
+
+    def _collect(self, m, tree):
+        def walk(body, parent, pfx):
+            for st in body:
+                if isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    d = self._mkdef(m, st.name, 'function', pfx + st.name, st, parent)
+                    walk(st.body, d, pfx + st.name + '.')
+                elif isinstance(st, ast.ClassDef):
+                    d = self._mkdef(m, st.name, 'class', pfx + st.name, st, parent)
+                    walk(st.body, d, pfx + st.name + '.')
+                elif parent is None:
+                    alias = self._is_type_alias(st)
+                    if alias and alias not in BUILTIN_NAMES:
+                        self._mkdef(m, alias, 'type', alias, st, None)
+        walk(tree.body, None, '')
+
+        # imports (anywhere in the file bind file-wide; good enough in practice)
+        for st in ast.walk(tree):
+            if isinstance(st, (ast.Import, ast.ImportFrom)):
+                m['imports'].append(st)
+
+        # top-level executable code -> synthetic <module> symbol
+        top = []
+        for i, st in enumerate(tree.body):
+            if isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
+                               ast.Import, ast.ImportFrom)):
+                continue
+            if i == 0 and isinstance(st, ast.Expr) and isinstance(st.value, ast.Constant) \
+               and isinstance(st.value.value, str):
+                continue                          # module docstring
+            if self._is_type_alias(st):
+                continue
+            top.append(st)
+        if top:
+            md = self._mkdef(m, '<module>', 'file', '<module>', None, None, is_module=True)
+            md['line'] = top[0].lineno
+            md['end'] = max(getattr(s, 'end_lineno', s.lineno) for s in top)
+            md['_body'] = top
+            m['module_def'] = md
+            # <module> owns everything top-level for browsing order: keep it first
+            m['defs'].remove(md)
+            m['defs'].insert(0, md)
+
+    # ------------------------------------------------------------ pass 2: bindings
+    def bind_all(self):
+        for m in self.mods.values():
+            for st in m['imports']:
+                if isinstance(st, ast.Import):
+                    for al in st.names:
+                        tf = self.resolve_module(m['path'], al.name, 0)
+                        if al.asname:
+                            m['bindings'][al.asname] = ('mod', tf) if tf else ('ext',)
+                        else:
+                            m['bindings'][al.name.split('.')[0]] = ('modpath', al.name, tf is not None)
+                else:
+                    tf = self.resolve_module(m['path'], st.module or '', st.level)
+                    for al in st.names:
+                        if al.name == '*':
+                            if tf:
+                                m['stars'].append(tf)
+                            continue
+                        local = al.asname or al.name
+                        if tf or st.level:
+                            m['bindings'][local] = ('sym', tf, al.name, st.module or '', st.level)
+                        else:
+                            m['bindings'][local] = ('ext',)
+
+    def lookup_symbol(self, path, name, seen=None):
+        if not path:
+            return None
+        seen = seen or set()
+        key = (path, name)
+        if key in seen:
+            return None
+        seen.add(key)
+        top = self.top_by_file.get(path, {})
+        if name in top:
+            return top[name]
+        m = self.mods.get(path)
+        if not m:
+            return None
+        b = m['bindings'].get(name)
+        if b and b[0] == 'sym':
+            hit = self.lookup_symbol(b[1], b[2], seen)
+            if hit:
+                return hit
+            sub = self.resolve_module(path, (b[3] + '.' + b[2]) if b[3] else b[2], b[4])
+            if sub:
+                return self.module_def(sub)
+            return None
+        for sp in m['stars']:
+            hit = self.lookup_symbol(sp, name, seen)
+            if hit:
+                return hit
+        return None
+
+    # ------------------------------------------------------------ class machinery
+    def find_method(self, cls, name, seen=None):
+        if cls is None:
+            return None
+        seen = seen or set()
+        if cls['id'] in seen:
+            return None
+        seen.add(cls['id'])
+        for cid in cls['children']:
+            c = self.defs_by_id.get(cid)
+            if c and c['name'] == name:
+                return c
+        for bid in cls['extends']:
+            hit = self.find_method(self.defs_by_id.get(bid), name, seen)
+            if hit:
+                return hit
+        return None
+
+    def find_super_method(self, cls, name):
+        if cls is None:
+            return None
+        seen = {cls['id']}
+        for bid in cls['extends']:
+            hit = self.find_method(self.defs_by_id.get(bid), name, seen)
+            if hit:
+                return hit
+        return None
+
+    def attr_type(self, cls, name, seen=None):
+        if cls is None:
+            return None
+        seen = seen or set()
+        if cls['id'] in seen:
+            return None
+        seen.add(cls['id'])
+        if name in cls['_attr_types']:
+            return cls['_attr_types'][name]
+        for bid in cls['extends']:
+            hit = self.attr_type(self.defs_by_id.get(bid), name, seen)
+            if hit:
+                return hit
+        return None
+
+    def enclosing_class(self, d):
+        p = self.defs_by_id.get(d['parent']) if d['parent'] else None
+        while p and p['kind'] != 'class':
+            p = self.defs_by_id.get(p['parent']) if p['parent'] else None
+        return p
+
+    # ------------------------------------------------------------ scopes
+    class Scope:
+        __slots__ = ('m', 'locals', 'parent')
+
+        def __init__(self, m, parent=None):
+            self.m = m
+            self.locals = {}
+            self.parent = parent
+
+    def lookup_name(self, scope, name):
+        """Returns (value, conf) or (None, None). ('ext',) means known-external: stop."""
+        s = scope
+        while s is not None:
+            if name in s.locals:
+                return s.locals[name], 'sure'
+            s = s.parent
+        m = scope.m
+        b = m['bindings'].get(name)
+        if b:
+            if b[0] == 'ext':
+                return ('ext',), 'sure'
+            if b[0] == 'mod':
+                return ('mod', b[1]), 'sure'
+            if b[0] == 'modpath':
+                if not b[2]:
+                    return ('ext',), 'sure'
+                return ('modseg', [name], b[1].split('.')), 'sure'
+            if b[0] == 'sym':
+                hit = self.lookup_symbol(b[1], b[2])
+                if hit:
+                    return wrap_def(hit), 'sure'
+                sub = self.resolve_module(m['path'], (b[3] + '.' + b[2]) if b[3] else b[2], b[4])
+                if sub:
+                    return ('mod', sub), 'sure'
+                return ('ext',), 'sure'
+        if name in m['module_vars']:
+            return m['module_vars'][name], 'sure'
+        top = self.top_by_file.get(m['path'], {})
+        if name in top:
+            return wrap_def(top[name]), 'sure'
+        for sp in m['stars']:
+            hit = self.lookup_symbol(sp, name)
+            if hit:
+                return wrap_def(hit), 'sure'
+        if name in BUILTIN_NAMES:
+            return ('ext',), 'sure'
+        # guess tier: unique top-level def project-wide
+        cands = [c for c in self.by_name.get(name, []) if c['parent'] is None and not c.get('isModule')]
+        if len(cands) == 1:
+            return wrap_def(cands[0]), 'guess'
+        return None, None
+
+    # ------------------------------------------------------------ expression resolver
+    def resolve_expr(self, node, scope, d):
+        """-> (value, conf) or (None, None)."""
+        if isinstance(node, ast.Name):
+            return self.lookup_name(scope, node.id)
+
+        if isinstance(node, ast.Attribute):
+            base, conf = self.resolve_expr(node.value, scope, d)
+            if base is None or base[0] == 'unknown':
+                return None, None
+            if base[0] == 'ext':
+                return ('ext',), 'sure'
+            a = node.attr
+            if base[0] == 'mod':
+                sym = self.lookup_symbol(base[1], a)
+                if sym:
+                    return wrap_def(sym), conf
+                k = base[1][:-3] if base[1].endswith('.py') else base[1]
+                if k.endswith('/__init__'):
+                    k = k[:-len('/__init__')]
+                sub = self.mod_exact.get(k + '/' + a)
+                return (('mod', sub), conf) if sub else (None, None)
+            if base[0] == 'modseg':
+                consumed, declared = base[1], base[2]
+                tf = self.resolve_module(scope.m['path'], '.'.join(consumed), 0)
+                if tf:
+                    sym = self.lookup_symbol(tf, a)
+                    if sym:
+                        return wrap_def(sym), conf
+                nxt = consumed + [a]
+                tf2 = self.resolve_module(scope.m['path'], '.'.join(nxt), 0)
+                if tf2:
+                    return ('mod', tf2), conf
+                if len(nxt) <= len(declared) and declared[:len(nxt)] == nxt:
+                    return ('modseg', nxt, declared), conf
+                return None, None
+            if base[0] == 'class':
+                mm = self.find_method(base[1], a)
+                if mm:
+                    return wrap_def(mm), conf
+                at = self.attr_type(base[1], a)
+                if at:
+                    return at, conf
+                return None, None
+            if base[0] == 'inst':
+                mm = self.find_method(base[1], a)
+                if mm:
+                    return wrap_def(mm), conf
+                at = self.attr_type(base[1], a)
+                if at:
+                    return at, conf
+                return None, None
+            if base[0] == 'super':
+                mm = self.find_super_method(base[1], a)
+                return (wrap_def(mm), conf) if mm else (None, None)
+            return None, None
+
+        if isinstance(node, ast.Call):
+            fn = node.func
+            if isinstance(fn, ast.Name) and fn.id == 'super':
+                return ('super', self.enclosing_class(d)), 'sure'
+            v, conf = self.resolve_expr(fn, scope, d)
+            if v is None:
+                return None, None
+            if v[0] == 'ext':
+                return ('ext',), 'sure'
+            if v[0] == 'class':
+                return ('inst', v[1]), conf
+            if v[0] == 'func':
+                rt = self.return_type(v[1])
+                return (rt, conf) if rt else (None, None)
+            return None, None
+
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            # string annotation: "Engine" / "pkg.Engine"
+            txt = node.value.strip()
+            if txt and all(p.isidentifier() for p in txt.split('.')):
+                try:
+                    return self.resolve_expr(ast.parse(txt, mode='eval').body, scope, d)
+                except SyntaxError:
+                    return None, None
+        if isinstance(node, ast.Subscript):      # Optional[Engine], list[Engine] → inner for annotations
+            return self.resolve_expr(node.value, scope, d)
+        return None, None
+
+    def resolve_annotation(self, ann, scope, d):
+        """annotation expr -> class def or None (unwraps Optional[X], 'X' strings)."""
+        if ann is None:
+            return None
+        if isinstance(ann, ast.Subscript):
+            base = ann.value
+            nm = base.id if isinstance(base, ast.Name) else (base.attr if isinstance(base, ast.Attribute) else '')
+            if nm in ('Optional', 'Annotated') or nm in ('List', 'list', 'Sequence', 'Iterable', 'Iterator', 'Type', 'type'):
+                # Optional[X]/Annotated[X,...] -> X ; containers -> not the element's type for attr access
+                if nm in ('Optional', 'Annotated'):
+                    inner = ann.slice.elts[0] if isinstance(ann.slice, ast.Tuple) else ann.slice
+                    return self.resolve_annotation(inner, scope, d)
+                return None
+        v, conf = self.resolve_expr(ann, scope, d)
+        if v and v[0] == 'class' and conf == 'sure':
+            return v[1]
+        return None
+
+    def return_type(self, fdef):
+        fid = fdef['id']
+        if fid in self._ret_cache:
+            return self._ret_cache[fid]
+        if fid in self._ret_busy:
+            return None
+        self._ret_busy.add(fid)
+        try:
+            node = fdef.get('_node')
+            m = self.mods.get(fdef['path'])
+            if node is None or m is None:
+                return None
+            scope = self.scope_for(fdef)
+            rt = None
+            cls = self.resolve_annotation(getattr(node, 'returns', None), scope, fdef)
+            if cls:
+                rt = ('inst', cls)
+            else:
+                for st in ast.walk(node):
+                    if isinstance(st, ast.Return) and isinstance(st.value, ast.Call):
+                        v, conf = self.resolve_expr(st.value.func, scope, fdef)
+                        if v and v[0] == 'class' and conf == 'sure':
+                            rt = ('inst', v[1])
+                            break
+            self._ret_cache[fid] = rt
+            return rt
+        finally:
+            self._ret_busy.discard(fid)
+
+    # ------------------------------------------------------------ scope construction
+    def scope_for(self, d):
+        """Scope chain for resolving inside d, skipping class scopes (Python rule)."""
+        m = self.mods[d['path']]
+        chain = []
+        p = self.defs_by_id.get(d['parent']) if d['parent'] else None
+        while p:
+            if p['kind'] == 'function':
+                chain.append(p)
+            p = self.defs_by_id.get(p['parent']) if p['parent'] else None
+        scope = self.Scope(m)                    # module level (module_vars via lookup_name)
+        for p in reversed(chain):
+            s = self.Scope(m, scope)
+            s.locals = p.setdefault('_locals', {})
+            scope = s
+        s = self.Scope(m, scope)
+        s.locals = d.setdefault('_locals', {})
+        return s
+
+    def seed_params(self, d, scope):
+        node = d['_node']
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return
+        deco = {ast.unparse(x) for x in node.decorator_list}
+        cls = self.enclosing_class(d)
+        args = node.args
+        allargs = list(args.posonlyargs) + list(args.args)
+        first = allargs[0].arg if allargs else None
+        if cls and d['parent'] == cls['id'] and 'staticmethod' not in deco:
+            if first:
+                scope.locals[first] = ('class', cls) if 'classmethod' in deco else ('inst', cls)
+        for a in allargs + list(args.kwonlyargs):
+            if a.annotation is not None:
+                c = self.resolve_annotation(a.annotation, scope, d)
+                if c:
+                    scope.locals[a.arg] = ('inst', c)
+                elif a.arg not in scope.locals:
+                    scope.locals[a.arg] = ('ext',)   # annotated with something external: don't guess
+            elif a.arg not in scope.locals:
+                scope.locals[a.arg] = ('unknown',)   # unannotated param: guess tier may apply
+
+    # ------------------------------------------------------------ pass 3: inheritance
+    def resolve_bases(self):
+        for m in self.mods.values():
+            for d in m['defs']:
+                if d['kind'] != 'class':
+                    continue
+                scope = self.scope_for(d)
+                for b in d['_node'].bases:
+                    if isinstance(b, ast.Subscript):
+                        b = b.value                # Generic[T] -> Generic
+                    v, conf = self.resolve_expr(b, scope, d)
+                    if v and v[0] == 'class' and conf == 'sure' and v[1]['id'] != d['id']:
+                        if v[1]['id'] not in d['extends']:
+                            d['extends'].append(v[1]['id'])
+                            v[1]['extendedBy'].append(d['id'])
+
+    # ------------------------------------------------------------ pass 4: instance attrs
+    def infer_attrs(self):
+        for m in self.mods.values():
+            for d in m['defs']:
+                if d['kind'] != 'class':
+                    continue
+                node = d['_node']
+                scope = self.scope_for(d)
+                # class-level:  attr = Engine(...)   attr: Engine [= ...]
+                for st in node.body:
+                    if isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name):
+                        c = self.resolve_annotation(st.annotation, scope, d)
+                        if c:
+                            d['_attr_types'][st.target.id] = ('inst', c)
+                    elif isinstance(st, ast.Assign) and len(st.targets) == 1 and isinstance(st.targets[0], ast.Name):
+                        v, conf = self.resolve_expr(st.value, scope, d)
+                        if v and v[0] == 'inst' and conf == 'sure':
+                            d['_attr_types'][st.targets[0].id] = v
+                # method bodies:  self.attr = Engine(...)   self.attr: Engine = ...
+                for cid in d['children']:
+                    meth = self.defs_by_id.get(cid)
+                    if not meth or meth['kind'] != 'function':
+                        continue
+                    ms = self.scope_for(meth)
+                    self.seed_params(meth, ms)
+                    for st in ast.walk(meth['_node']):
+                        tgt = None
+                        if isinstance(st, ast.Assign) and len(st.targets) == 1:
+                            tgt, val = st.targets[0], st.value
+                        elif isinstance(st, ast.AnnAssign):
+                            tgt, val = st.target, st.value
+                        else:
+                            continue
+                        if not (isinstance(tgt, ast.Attribute) and isinstance(tgt.value, ast.Name)):
+                            continue
+                        recv, _ = self.lookup_name(ms, tgt.value.id)
+                        if not (recv and recv[0] == 'inst' and recv[1] is d):
+                            continue
+                        if isinstance(st, ast.AnnAssign):
+                            c = self.resolve_annotation(st.annotation, ms, meth)
+                            if c:
+                                d['_attr_types'].setdefault(tgt.attr, ('inst', c))
+                            continue
+                        v, conf = self.resolve_expr(val, ms, meth)
+                        if v and v[0] == 'inst' and conf == 'sure':
+                            d['_attr_types'].setdefault(tgt.attr, v)
+
+    # ------------------------------------------------------------ pass 5: edges
+    def edge(self, d, target, lineno, name, via, conf):
+        if target is None or target['id'] == d['id']:
+            return
+        cur = d['_edges'].get(target['id'])
+        if cur is None:
+            d['_edges'][target['id']] = {'id': target['id'], 'line': lineno, 'name': name,
+                                         'via': via, 'viaCall': via == 'call', 'conf': conf}
+        elif conf == 'sure' and cur['conf'] == 'guess':
+            cur.update({'conf': 'sure', 'via': via, 'viaCall': via == 'call', 'line': min(cur['line'], lineno)})
+
+    def value_target(self, v):
+        if not v:
+            return None
+        if v[0] in ('class', 'func', 'type'):
+            return v[1]
+        if v[0] == 'mod':
+            return self.module_def(v[1])
+        return None
+
+    def scan_def(self, d):
+        m = self.mods[d['path']]
+        scope = self.scope_for(d)
+        node = d.get('_node')
+        an = self  # closure alias
+
+        if d.get('isModule'):
+            scope.locals = m['module_vars']
+            # import statements are dependencies of the module symbol
+            for st in m['imports']:
+                if isinstance(st, ast.Import):
+                    for al in st.names:
+                        tf = self.resolve_module(m['path'], al.name, 0)
+                        self.edge(d, self.module_def(tf) if tf else None, st.lineno, al.asname or al.name, 'import', 'sure')
+                else:
+                    for al in st.names:
+                        if al.name == '*':
+                            tf = self.resolve_module(m['path'], st.module or '', st.level)
+                            self.edge(d, self.module_def(tf) if tf else None, st.lineno, (st.module or '.') + '.*', 'import', 'sure')
+                            continue
+                        local = al.asname or al.name
+                        v, conf = self.lookup_name(scope, local)
+                        self.edge(d, self.value_target(v), st.lineno, local, 'import', 'sure')
+            body = d.get('_body', [])
+        else:
+            self.seed_params(d, scope)
+            body = node.body
+
+        class Scan(ast.NodeVisitor):
+            def visit_FunctionDef(self, n):      # nested defs are their own symbols
+                pass
+            visit_AsyncFunctionDef = visit_FunctionDef
+            visit_ClassDef = visit_FunctionDef
+
+            def visit_Assign(self, n):
+                self.visit(n.value)
+                if len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
+                    v, conf = an.resolve_expr(n.value, scope, d)
+                    if v and v[0] == 'ext':
+                        scope.locals[n.targets[0].id] = ('ext',)      # provably external: hard stop
+                    elif v and conf == 'sure':
+                        scope.locals[n.targets[0].id] = v
+                    else:
+                        scope.locals[n.targets[0].id] = ('unknown',)  # unresolved: guess tier may apply
+                else:
+                    for t in n.targets:
+                        self.visit(t)
+
+            def visit_AnnAssign(self, n):
+                if n.value is not None:
+                    self.visit(n.value)
+                if isinstance(n.target, ast.Name):
+                    c = an.resolve_annotation(n.annotation, scope, d)
+                    if c:
+                        scope.locals[n.target.id] = ('inst', c)
+                    else:
+                        v, conf = (an.resolve_expr(n.value, scope, d) if n.value is not None else (None, None))
+                        if v and v[0] == 'ext':
+                            scope.locals[n.target.id] = ('ext',)
+                        elif v and conf == 'sure':
+                            scope.locals[n.target.id] = v
+                        else:
+                            scope.locals[n.target.id] = ('unknown',)
+                a = n.annotation
+                if a is not None:
+                    self.visit(a)
+
+            def visit_Call(self, n):
+                if isinstance(n.func, ast.Name) and n.func.id == 'super':
+                    pass
+                else:
+                    v, conf = an.resolve_expr(n.func, scope, d)
+                    tgt = an.value_target(v)
+                    if tgt is not None:
+                        an.edge(d, tgt, n.lineno, ast.unparse(n.func), 'call', conf)
+                    elif v is None and isinstance(n.func, ast.Attribute):
+                        base, bconf = an.resolve_expr(n.func.value, scope, d)
+                        if base and base[0] == 'super':
+                            mm = an.find_super_method(base[1], n.func.attr)
+                            an.edge(d, mm, n.lineno, ast.unparse(n.func), 'call', 'sure')
+                        elif base is None or base[0] == 'unknown':
+                            # unknown receiver: unique method name project-wide -> guess
+                            meths = [c for c in an.by_name.get(n.func.attr, []) if c['parent']]
+                            if len(meths) == 1:
+                                an.edge(d, meths[0], n.lineno, ast.unparse(n.func), 'call', 'guess')
+                            self.visit(n.func.value)
+                    elif v is None and isinstance(n.func, ast.Name):
+                        pass
+                    if isinstance(n.func, ast.Attribute) and v is not None:
+                        pass                        # receiver resolved; don't re-visit it
+                for a in n.args:
+                    self.visit(a)
+                for k in n.keywords:
+                    self.visit(k.value)
+
+            def visit_Attribute(self, n):
+                v, conf = an.resolve_expr(n, scope, d)
+                tgt = an.value_target(v)
+                if tgt is not None:
+                    an.edge(d, tgt, n.lineno, ast.unparse(n), 'ref', conf)
+                else:
+                    self.visit(n.value)
+
+            def visit_Name(self, n):
+                if not isinstance(n.ctx, ast.Load):
+                    return
+                v, conf = an.lookup_name(scope, n.id)
+                tgt = an.value_target(v)
+                if tgt is not None:
+                    an.edge(d, tgt, n.lineno, n.id, 'ref', conf)
+
+        sc = Scan()
+        if node is not None and not d.get('isModule'):
+            for dec in getattr(node, 'decorator_list', []):
+                sc.visit(dec)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                a = node.args
+                for arg in list(a.posonlyargs) + list(a.args) + list(a.kwonlyargs):
+                    if arg.annotation is not None:
+                        sc.visit(arg.annotation)
+                for dflt in list(a.defaults) + [x for x in a.kw_defaults if x is not None]:
+                    sc.visit(dflt)
+                if node.returns is not None:
+                    sc.visit(node.returns)
+            if isinstance(node, ast.ClassDef):
+                for b in node.bases:
+                    sc.visit(b)
+                for kw in node.keywords:
+                    sc.visit(kw.value)
+        for st in body:
+            sc.visit(st)
+
+        # inheritance edges are structural; ensure presence and tag them
+        if d['kind'] == 'class':
+            for bid in d['extends']:
+                bd = self.defs_by_id.get(bid)
+                if bid in d['_edges']:
+                    d['_edges'][bid]['via'] = 'extends'
+                    d['_edges'][bid]['viaCall'] = False
+                    d['_edges'][bid]['conf'] = 'sure'
+                elif bd:
+                    d['_edges'][bid] = {'id': bid, 'line': d['line'], 'name': bd['name'],
+                                        'via': 'extends', 'viaCall': False, 'conf': 'sure'}
+        d['callSites'] = sorted(d['_edges'].values(), key=lambda e: e['line'])
+
+    # ------------------------------------------------------------ driver
+    def run(self):
+        self.collect_all()
+        self.bind_all()
+        self.resolve_bases()
+        self.infer_attrs()
+        for m in self.mods.values():
+            for d in m['defs']:
+                if d['kind'] in ('function', 'file'):
+                    self.scan_def(d)
+                elif d['kind'] == 'class':
+                    self.scan_def(d)
+        out_files = []
+        for path in self.files:
+            m = self.mods[path]
+            out_files.append({
+                'path': path, 'err': m['err'],
+                'defs': [{k: v for k, v in d.items() if not k.startswith('_')} for d in m['defs']],
+            })
+        return {'files': out_files}
+
+
+def analyze(files_json):
+    files = {f['path']: f['text'] for f in json.loads(files_json)}
+    return json.dumps(Analyzer(files).run())
+`;
+
+const PYODIDE_URL = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';
+let PYODIDE = null, PY_FAILED = false;
+
+async function ensurePython(progress) {
+  if (PYODIDE) return true;
+  if (PY_FAILED || window.__forceLegacy) return false;
+  try {
+    if (typeof loadPyodide === 'undefined') {
+      progress('Loading Python engine — first time only (~7 MB)…');
+      await new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = PYODIDE_URL + 'pyodide.js';
+        s.onload = res;
+        s.onerror = () => rej(new Error('could not load pyodide.js'));
+        document.head.appendChild(s);
+      });
+    }
+    progress('Starting Python runtime…');
+    const p = await loadPyodide({ indexURL: PYODIDE_URL });
+    p.runPython(PY_ANALYZER);
+    PYODIDE = p;
+    return true;
+  } catch (e) {
+    console.warn('Pyodide unavailable — using quick JS engine.', e);
+    PY_FAILED = true;
+    return false;
+  }
+}
+
+async function analyseSmart(repo, pyFiles, progress) {
+  if (await ensurePython(progress)) {
+    try {
+      progress(`Analysing ${pyFiles.length} files (Python AST)…`);
+      await new Promise(r => setTimeout(r, 30));   // let the spinner paint
+      PYODIDE.globals.set('files_json',
+        JSON.stringify(pyFiles.map(f => ({ path: f.path, text: f.text }))));
+      const out = JSON.parse(PYODIDE.runPython('analyze(files_json)'));
+      return buildModelFromPy(repo, pyFiles, out);
+    } catch (e) {
+      console.warn('Python analysis failed — using quick JS engine.', e);
+    }
+  }
+  progress(`Analysing ${pyFiles.length} files (quick engine)…`);
+  await new Promise(r => setTimeout(r, 30));
+  const m = analyse(repo, pyFiles);
+  m.engine = 'quick';
+  for (const d of m.defsById.values()) d.guess = new Set();
+  return m;
+}
+
+/* Python JSON -> the MODEL shape the UI consumes */
+function buildModelFromPy(repo, pyFiles, out) {
+  const srcByPath = new Map(pyFiles.map(f => [f.path, f.text]));
+  const files = out.files.map(fo => ({
+    path: fo.path, defs: fo.defs, err: fo.err,
+    lines: (srcByPath.get(fo.path) || '').split('\n'),
+  }));
+  const defsById = new Map(), byName = new Map();
+  for (const f of files) for (const d of f.defs) {
+    d.calls = new Set(); d.refBy = new Set(); d.guess = new Set();
+    d.extends = new Set(d.extends || []);
+    d.extendedBy = new Set(d.extendedBy || []);
+    for (const cs of d.callSites) {
+      d.calls.add(cs.id);
+      if (cs.conf === 'guess') d.guess.add(cs.id);
+    }
+    defsById.set(d.id, d);
+    if (!byName.has(d.name)) byName.set(d.name, []);
+    byName.get(d.name).push(d);
+  }
+  for (const d of defsById.values())
+    for (const t of d.calls) { const td = defsById.get(t); if (td) td.refBy.add(d.id); }
+  const nErr = files.filter(f => f.err).length;
+  return { name: repo, files, defsById, fileByPath: new Map(files.map(f => [f.path, f])),
+    byName, folderTree: buildFolderTree(files), engine: 'python', parseErrors: nErr };
+}
+
+async function buildAndLaunch(repo, pyFiles) {
+  MODEL = await analyseSmart(repo, pyFiles, spinner);
   const nDefs = MODEL.defsById.size;
   const nEdges = [...MODEL.defsById.values()].reduce((a, d) => a + d.calls.size, 0);
   $('#repoName').innerHTML = `<b>${repo}</b>`;
   $('#repoStat').textContent = `${MODEL.files.length} files · ${nDefs} symbols · ${nEdges} edges`;
   $('#landing').style.display = 'none';
   $('#app').classList.add('on');
-  STATE = { view: 'flow', mode: 'calls', depth: 2, kinds: new Set(['function', 'class', 'type', 'file']), focus: null, selected: null, search: '', disabled: new Set(), force: { ...FORCE_DEFAULTS } };
-  document.querySelectorAll('#chips .chip').forEach(c => c.classList.toggle('on', STATE.kinds.has(c.dataset.k)));
+  STATE = { view: 'flow', mode: 'calls', depth: 2, kinds: new Set(['function', 'class', 'type', 'file']), showGuess: true, focus: null, selected: null, search: '', disabled: new Set(), force: { ...FORCE_DEFAULTS } };
+  document.querySelectorAll('#chips .chip:not(#chipGuess)').forEach(c => c.classList.toggle('on', STATE.kinds.has(c.dataset.k)));
+  $('#chipGuess').classList.toggle('on', STATE.showGuess);
   syncForceSliders();
   codeState = { path: null };
   syncViewToggle();
@@ -832,9 +1986,11 @@ function updateStat() {
   const active = total - off;
   const edges = all.filter(d => !STATE.disabled.has(d.id))
     .reduce((a, d) => a + [...d.calls].filter(t => !STATE.disabled.has(t)).length, 0);
-  $('#repoStat').textContent = off
+  const eng = MODEL.engine === 'python' ? 'AST engine' : 'quick engine';
+  const perr = MODEL.parseErrors ? ` · ${MODEL.parseErrors} unparsable` : '';
+  $('#repoStat').textContent = (off
     ? `${MODEL.files.length} files · ${active}/${total} symbols · ${edges} edges · ${off} excluded`
-    : `${MODEL.files.length} files · ${total} symbols · ${edges} edges`;
+    : `${MODEL.files.length} files · ${total} symbols · ${edges} edges`) + ` · ${eng}` + perr;
 }
 
 /* =========================================================================
@@ -1058,7 +2214,13 @@ function computeVisible() {
     const nodes = [...D.values()].filter(isActive);
     const set = new Set(nodes.map(n => n.id));
     const links = [];
-    for (const n of nodes) for (const t of n.calls) if (set.has(t)) links.push({ source: n.id, target: t, kind: 'calls' });
+    for (const n of nodes) for (const t of n.calls) {
+      if (!set.has(t)) continue;
+      const guess = n.guess && n.guess.has(t);
+      if (guess && !STATE.showGuess) continue;
+      links.push({ source: n.id, target: t, guess,
+        kind: n.extends && n.extends.has(t) ? 'extends' : 'calls' });
+    }
     return { nodes, links, rootIds: new Set() };
   }
 
@@ -1074,9 +2236,12 @@ function computeVisible() {
       const d = D.get(id); if (!d) continue;
       for (const t of d[dir]) {
         const td = D.get(t); if (!td || !isActive(td)) continue;   // skip disabled targets
+        const guess = dir === 'calls' ? (d.guess && d.guess.has(t)) : (td.guess && td.guess.has(id));
+        if (guess && !STATE.showGuess) continue;
         // edge direction always drawn caller->callee for clarity
-        if (dir === 'calls') links.push({ source: id, target: t, kind: 'calls' });
-        else links.push({ source: t, target: id, kind: 'refs' });
+        const ext = dir === 'calls' ? (d.extends && d.extends.has(t)) : (td.extends && td.extends.has(id));
+        if (dir === 'calls') links.push({ source: id, target: t, guess, kind: ext ? 'extends' : 'calls' });
+        else links.push({ source: t, target: id, guess, kind: ext ? 'extends' : 'refs' });
         if (!visited.has(t)) { visited.set(t, hop + 1); next.push(t); }
       }
     }
@@ -1154,12 +2319,13 @@ function buildFlowNode(d, dir, depth, onPath, isRoot) {
   const recursive = onPath.has(d.id);
   if (!recursive && depth < STATE.depth) {
     if (dir === 'callSites') {
-      kids = (d.callSites || []).map(cs => ({ def: MODEL.defsById.get(cs.id), line: cs.line, viaCall: cs.viaCall }))
-        .filter(k => k.def && isActive(k.def));
+      kids = (d.callSites || []).map(cs => ({ def: MODEL.defsById.get(cs.id), line: cs.line, viaCall: cs.viaCall, via: cs.via, guess: cs.conf === 'guess' }))
+        .filter(k => k.def && isActive(k.def) && (STATE.showGuess || !k.guess));
     } else {
       kids = [...d.refBy].map(id => MODEL.defsById.get(id)).filter(Boolean)
         .filter(isActive).sort((a, b) => a.line - b.line)
-        .map(def => ({ def, line: def.line, viaCall: true }));
+        .map(def => ({ def, line: def.line, viaCall: true, via: def.extends && def.extends.has(d.id) ? 'extends' : 'call', guess: def.guess && def.guess.has(d.id) }))
+        .filter(k => STATE.showGuess || !k.guess);
     }
   }
   const hasKids = kids.length > 0;
@@ -1185,6 +2351,9 @@ function buildFlowNode(d, dir, depth, onPath, isRoot) {
       const childNode = buildFlowNode(k.def, dir, depth + 1, onPath, false);
       // annotate the call-site line on the connector
       if (k.viaCall === false) childNode.querySelector('.flow-row').classList.add('is-ref');
+      if (k.via === 'extends') childNode.querySelector('.flow-row').classList.add('is-ext');
+      else if (k.via === 'import') childNode.querySelector('.flow-row').classList.add('is-imp');
+      if (k.guess) childNode.querySelector('.flow-row').classList.add('is-guess');
       childBox.appendChild(childNode);
     }
     onPath.delete(d.id);
@@ -1252,7 +2421,7 @@ function renderGraph() {
 
   // arrow markers
   const defs = gRoot.append('defs');
-  for (const k of ['calls', 'refs']) {
+  for (const k of ['calls', 'refs', 'extends']) {
     defs.append('marker').attr('id', 'arw-' + k).attr('viewBox', '0 -5 10 10')
       .attr('refX', 20).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6)
       .attr('orient', 'auto').append('path').attr('d', 'M0,-4L9,0L0,4')
@@ -1262,10 +2431,11 @@ function renderGraph() {
 
   const link = gRoot.append('g').selectAll('path').data(links).join('path')
     .attr('class', 'edge')
-    .style('stroke', edgeColor)
+    .style('stroke', l => l.kind === 'extends' ? 'var(--cls)' : edgeColor)
+    .attr('stroke-dasharray', l => l.guess ? '2,4' : l.kind === 'extends' ? '5,4' : null)
     .attr('stroke-width', 1.3)
-    .attr('stroke-opacity', .45)
-    .attr('marker-end', `url(#arw-${STATE.mode})`);
+    .attr('stroke-opacity', l => l.guess ? .22 : l.kind === 'extends' ? .6 : .45)
+    .attr('marker-end', l => l.kind === 'extends' ? 'url(#arw-extends)' : `url(#arw-${STATE.mode})`);
 
   const nodeColor = d => ({ function: 'var(--fn)', class: 'var(--cls)', type: 'var(--type)' }[d.kind] || 'var(--file)');
 
@@ -1400,6 +2570,8 @@ function renderDetail(id) {
   $('#dtName').textContent = d.qual;
   $('#dtPath').textContent = `${d.path}:${d.line}`;
 
+  const guessOf = x => (d.guess && d.guess.has(x)) ||
+    (() => { const xd = MODEL.defsById.get(x); return xd && xd.guess && xd.guess.has(d.id); })();
   const list = (title, ids, color) => {
     const arr = [...ids].map(x => MODEL.defsById.get(x)).filter(Boolean);
     const activeN = arr.filter(x => !STATE.disabled.has(x.id)).length;
@@ -1408,12 +2580,20 @@ function renderDetail(id) {
     if (!arr.length) html += `<div class="dt-none">none</div>`;
     else html += arr.map(x => {
       const off = STATE.disabled.has(x.id);
-      return `<div class="dt-item${off ? ' off' : ''}" data-goto="${x.id}"><span class="ki ${x.kind}">${KI[x.kind]}</span><span class="txt" title="${escHtml(x.qual)} · ${x.path}${off ? ' · excluded' : ''}">${escHtml(x.qual)}</span></div>`;
+      const g = guessOf(x.id);
+      return `<div class="dt-item${off ? ' off' : ''}${g ? ' guessed' : ''}" data-goto="${x.id}"><span class="ki ${x.kind}">${KI[x.kind]}</span><span class="txt" title="${escHtml(x.qual)} · ${x.path}${off ? ' · excluded' : ''}${g ? ' · guessed by name match' : ''}">${escHtml(x.qual)}${g ? ' <span class=\"gq\">?</span>' : ''}</span></div>`;
     }).join('');
     return html;
   };
-  $('#dtCalls').innerHTML = list('Calls / uses', d.calls, 'var(--calls)');
-  $('#dtRefs').innerHTML = list('Referenced by', d.refBy, 'var(--refs)');
+  $('#dtCalls').innerHTML =
+    (d.extends && d.extends.size ? list('Extends', d.extends, 'var(--cls)') : '') +
+    list('Calls / uses', [...d.calls].filter(x => !(d.extends && d.extends.has(x))), 'var(--calls)');
+  $('#dtRefs').innerHTML =
+    (d.extendedBy && d.extendedBy.size ? list('Extended by', d.extendedBy, 'var(--cls)') : '') +
+    list('Referenced by', [...d.refBy].filter(x => {
+      const xd = MODEL.defsById.get(x);
+      return !(xd && xd.extends && xd.extends.has(d.id));
+    }), 'var(--refs)');
   box.querySelectorAll('[data-goto]').forEach(it =>
     it.addEventListener('click', () => selectDef(it.dataset.goto, true)));
 }
@@ -1566,7 +2746,7 @@ function loadFile(f) { const rd = new FileReader(); rd.onload = () => handleArch
 // header
 const THEMES = ['deep', 'slate'];
 const THEME_LABEL = { deep: 'Deep dark', slate: 'Lighter slate' };
-let themeIdx = 1;
+let themeIdx = 0;
 function applyTheme() {
   const t = THEMES[themeIdx];
   document.documentElement.setAttribute('data-theme', t);
@@ -1614,7 +2794,12 @@ $('#depth').addEventListener('input', e => {
 });
 
 // chips
-$('#chips').querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => {
+$('#chipGuess').addEventListener('click', () => {
+  STATE.showGuess = !STATE.showGuess;
+  $('#chipGuess').classList.toggle('on', STATE.showGuess);
+  renderCenter();
+});
+$('#chips').querySelectorAll('.chip:not(#chipGuess)').forEach(c => c.addEventListener('click', () => {
   const k = c.dataset.k;
   if (STATE.kinds.has(k)) { if (STATE.kinds.size > 1) STATE.kinds.delete(k); } else STATE.kinds.add(k);
   c.classList.toggle('on', STATE.kinds.has(k));
