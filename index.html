@@ -306,6 +306,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .flow-row.is-guess{opacity:.55}
 .flow-row.is-guess .fl-name::before{content:'?';margin-right:5px;font-weight:700;color:var(--ink-faint)}
 .dt-item.guessed{opacity:.6}
+.dt-item .txt .c{color:var(--ink-faint);font-size:9.5px;margin-left:4px}
 .dt-item .gq{font-weight:700;color:var(--ink-faint)}
 .flow-row .fl-cyc{flex:none;font-size:9px;color:var(--refs);background:rgba(232,163,61,.12);
   padding:1px 7px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px}
@@ -392,6 +393,7 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
     <div class="mode-toggle" id="viewToggle" title="Center display">
       <button data-view="flow" class="active">⤵ Flow</button>
       <button data-view="graph">✸ Graph</button>
+      <button data-view="arch" title="File-level architecture: which modules depend on which"><svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-1px"><rect x="1" y="1" width="4" height="4" rx="1"/><rect x="7" y="1" width="4" height="4" rx="1"/><rect x="4" y="7" width="4" height="4" rx="1"/></svg> Files</button>
     </div>
     <div class="mode-toggle" id="modeToggle">
       <button data-mode="calls" class="active"><span class="dot" style="background:var(--calls)"></span>Calls out</button>
@@ -513,6 +515,7 @@ let STATE = {
   depth: 2,
   kinds: new Set(['function', 'class', 'type', 'file']),
   showGuess: true,
+  archSel: null,
   focus: null,             // {type:'symbol'|'file', id}
   selected: null,          // def id highlighted
   search: '',
@@ -1966,7 +1969,7 @@ async function buildAndLaunch(repo, pyFiles) {
   $('#repoStat').textContent = `${MODEL.files.length} files · ${nDefs} symbols · ${nEdges} edges`;
   $('#landing').style.display = 'none';
   $('#app').classList.add('on');
-  STATE = { view: 'flow', mode: 'calls', depth: 2, kinds: new Set(['function', 'class', 'type', 'file']), showGuess: true, focus: null, selected: null, search: '', disabled: new Set(), force: { ...FORCE_DEFAULTS } };
+  STATE = { view: 'flow', mode: 'calls', depth: 2, kinds: new Set(['function', 'class', 'type', 'file']), showGuess: true, archSel: null, focus: null, selected: null, search: '', disabled: new Set(), force: { ...FORCE_DEFAULTS } };
   document.querySelectorAll('#chips .chip:not(#chipGuess)').forEach(c => c.classList.toggle('on', STATE.kinds.has(c.dataset.k)));
   $('#chipGuess').classList.toggle('on', STATE.showGuess);
   syncForceSliders();
@@ -2260,13 +2263,19 @@ function computeVisible() {
    ========================================================================= */
 function renderCenter() {
   const flowOn = STATE.view === 'flow';
+  const archOn = STATE.view === 'arch';
   $('#graph').style.display = flowOn ? 'none' : 'block';
   $('#flow').style.display = flowOn ? 'block' : 'none';
   // depth/mode/legend chrome that only makes sense for one view
   $('#legend').style.display = flowOn ? 'none' : 'flex';
   $('#zoomctl').style.display = flowOn ? 'none' : 'flex';
   $('#forcesctl').style.display = flowOn ? 'none' : 'block';
-  if (flowOn) renderFlow(); else renderGraph();
+  document.querySelector('.depth-inline').style.visibility = archOn ? 'hidden' : 'visible';
+  $('#modeToggle').style.visibility = archOn ? 'hidden' : 'visible';
+  if (!archOn) { svg.on('click.arch', null); restoreSymbolLegend(); }
+  if (flowOn) renderFlow();
+  else if (archOn) renderArch();
+  else renderGraph();
 }
 function syncViewToggle() {
   document.querySelectorAll('#viewToggle button').forEach(b =>
@@ -2524,6 +2533,255 @@ function fitView() {
   const tx = W / 2 - scale * (minX + maxX) / 2;
   const ty = H / 2 - scale * (minY + maxY) / 2;
   svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+}
+
+
+/* =========================================================================
+   (5b) ARCHITECTURE VIEW — files as nodes, aggregated dependencies as edges
+   ========================================================================= */
+let LEGEND_SYMBOL_HTML = null;
+function restoreSymbolLegend() {
+  if (LEGEND_SYMBOL_HTML) { $('#legend').innerHTML = LEGEND_SYMBOL_HTML; LEGEND_SYMBOL_HTML = null; }
+}
+
+/* aggregate active symbol edges into file->file edges */
+function computeFileGraph() {
+  const meta = new Map();                        // path -> active def count
+  for (const f of MODEL.files) {
+    const n = f.defs.filter(isActive).length;
+    if (n) meta.set(f.path, n);
+  }
+  const agg = new Map();
+  for (const d of MODEL.defsById.values()) {
+    if (!isActive(d)) continue;
+    for (const cs of d.callSites || []) {
+      const td = MODEL.defsById.get(cs.id);
+      if (!td || !isActive(td) || td.path === d.path) continue;
+      if (!meta.has(d.path) || !meta.has(td.path)) continue;
+      const guess = cs.conf === 'guess';
+      if (guess && !STATE.showGuess) continue;
+      const k = d.path + '\u0000' + td.path;
+      let e = agg.get(k);
+      if (!e) agg.set(k, e = { source: d.path, target: td.path, n: 0, gn: 0, xn: 0, samples: [] });
+      e.n++;
+      if (guess) e.gn++;
+      if (cs.via === 'extends') e.xn++;
+      if (e.samples.length < 4) e.samples.push(d.qual + ' \u2192 ' + td.qual);
+    }
+  }
+  return { meta, links: [...agg.values()] };
+}
+
+/* color files by top-level package (after the shared archive-root prefix) */
+function fileGrouping(paths) {
+  const segs = paths.map(p => p.split('/'));
+  let common = 0;
+  while (segs.every(s => s.length > common + 1 && s[common] === segs[0][common])) common++;
+  const groupOf = p => {
+    const s = p.split('/').slice(common);
+    return s.length > 1 ? s[0] : '(root)';
+  };
+  const groups = [...new Set(paths.map(groupOf))].sort();
+  const palette = d3.schemeTableau10;
+  const colorOf = g => palette[groups.indexOf(g) % palette.length];
+  return { groupOf, colorOf, groups };
+}
+
+function renderArch() {
+  const { meta, links } = computeFileGraph();
+  const empty = $('#emptyGraph');
+  const paths = [...meta.keys()];
+  if (!paths.length) {
+    gRoot.selectAll('*').remove();
+    empty.style.display = 'grid';
+    empty.innerHTML = 'No files to display.<br>Check the include boxes in the browser.';
+    return;
+  }
+  empty.style.display = 'none';
+
+  const { groupOf, colorOf, groups } = fileGrouping(paths);
+
+  // architecture legend (restored to the symbol legend when leaving this view)
+  if (!LEGEND_SYMBOL_HTML) LEGEND_SYMBOL_HTML = $('#legend').innerHTML;
+  const gRows = groups.slice(0, 9).map(g =>
+    `<span class="dt" style="background:${colorOf(g)}"></span>${escHtml(g)}&nbsp; `).join('');
+  $('#legend').innerHTML =
+    `<div class="lr"><span class="sw" style="border-color:var(--calls)"></span>depends on (width = links)</div>` +
+    `<div class="lr"><span class="sw" style="border-color:var(--cls);border-top-style:dashed"></span>inheritance only</div>` +
+    `<div class="lr"><span class="sw" style="border-color:var(--ink-faint);border-top-style:dotted"></span>guessed only</div>` +
+    `<div class="lr" style="margin-top:2px;max-width:260px;flex-wrap:wrap">${gRows}${groups.length > 9 ? '…' : ''}</div>`;
+
+  const W = $('#center').clientWidth, H = $('#center').clientHeight;
+  gRoot.selectAll('*').remove();
+
+  const nodes = paths.map(p => ({
+    id: p, path: p, name: p.split('/').pop(),
+    nDefs: meta.get(p), group: groupOf(p),
+  }));
+  for (const l of links)
+    l.label = `${l.source} \u2192 ${l.target}\n${l.n} link${l.n > 1 ? 's' : ''}` +
+      `${l.xn ? ` \u00b7 ${l.xn} extends` : ''}${l.gn ? ` \u00b7 ${l.gn} guessed` : ''}\n\n` +
+      l.samples.join('\n') + (l.n > l.samples.length ? '\n\u2026' : '');
+
+  const defs = gRoot.append('defs');
+  for (const [k, col] of [['farch', 'var(--calls)'], ['farch-ext', 'var(--cls)']]) {
+    defs.append('marker').attr('id', 'arw-' + k).attr('viewBox', '0 -5 10 10')
+      .attr('refX', 24).attr('refY', 0).attr('markerWidth', 5.5).attr('markerHeight', 5.5)
+      .attr('orient', 'auto').append('path').attr('d', 'M0,-4L9,0L0,4').style('fill', col);
+  }
+  const styleOf = l => l.gn === l.n ? 'guess' : (l.xn === l.n ? 'ext' : 'norm');
+  const wOf = l => Math.min(4.2, 1 + Math.log2(l.n + 1) * 0.9);
+
+  const link = gRoot.append('g').selectAll('path').data(links).join('path')
+    .attr('class', 'edge')
+    .style('stroke', l => styleOf(l) === 'ext' ? 'var(--cls)' : 'var(--calls)')
+    .attr('stroke-width', wOf)
+    .attr('stroke-dasharray', l => styleOf(l) === 'guess' ? '2,4' : styleOf(l) === 'ext' ? '6,4' : null)
+    .attr('marker-end', l => styleOf(l) === 'ext' ? 'url(#arw-farch-ext)' : 'url(#arw-farch)');
+  link.append('title').text(l => l.label);
+
+  const rOf = n => Math.min(22, 7 + Math.sqrt(n.nDefs) * 1.7);
+  const node = gRoot.append('g').selectAll('g').data(nodes, n => n.id).join('g')
+    .attr('class', 'node-g arch-node')
+    .call(d3.drag()
+      .on('start', (e, d) => { if (!e.active) sim.alphaTarget(.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on('end', (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+  node.each(function (n) {
+    const g = d3.select(this);
+    const r = rOf(n), col = colorOf(n.group);
+    g.append('circle').attr('r', r)
+      .style('fill', col).attr('fill-opacity', .13)
+      .style('stroke', col).attr('stroke-width', 1.8);
+    g.append('circle').attr('r', Math.max(2.4, r * .28)).style('fill', col).attr('opacity', .85);
+    g.append('text').attr('x', r + 6).attr('y', 4)
+      .style('fill', 'var(--ink-dim)')
+      .text(n.name.length > 28 ? n.name.slice(0, 26) + '\u2026' : n.name);
+    g.append('title').text(`${n.path}\n${n.nDefs} symbol${n.nDefs > 1 ? 's' : ''} \u00b7 double-click to drill into symbols`);
+  });
+
+  // selection styling without re-running the simulation
+  const neighborsOf = p => {
+    const s = new Set([p]);
+    for (const l of links) {
+      const a = l.source.id || l.source, b = l.target.id || l.target;
+      if (a === p) s.add(b);
+      if (b === p) s.add(a);
+    }
+    return s;
+  };
+  const restyle = () => {
+    const sel = STATE.archSel;
+    const nb = sel ? neighborsOf(sel) : null;
+    node.attr('opacity', n => !sel || nb.has(n.id) ? 1 : .18)
+      .select('text')
+      .style('fill', n => n.id === sel ? 'var(--ink)' : 'var(--ink-dim)')
+      .attr('font-weight', n => n.id === sel ? 700 : 400);
+    link.attr('stroke-opacity', l => {
+      const a = l.source.id || l.source, b = l.target.id || l.target;
+      const touch = sel && (a === sel || b === sel);
+      const base = styleOf(l) === 'guess' ? .18 : .4;
+      return !sel ? base : (touch ? Math.min(.85, base + .35) : .06);
+    });
+  };
+  renderArch._restyle = restyle;
+  restyle();
+
+  node.on('click', (e, n) => {
+    e.stopPropagation();
+    STATE.archSel = STATE.archSel === n.id ? null : n.id;
+    restyle();
+    if (STATE.archSel) renderFileDetail(n.id);
+    else $('#detail').classList.remove('on');
+  });
+  node.on('dblclick', (e, n) => {
+    e.stopPropagation();
+    STATE.view = 'graph';
+    syncViewToggle();
+    if (STATE.focus && STATE.focus.type === 'file' && STATE.focus.id === n.id) renderCenter();
+    else setFocus('file', n.id);
+  });
+  svg.on('click.arch', () => {
+    if (STATE.archSel) { STATE.archSel = null; restyle(); $('#detail').classList.remove('on'); }
+  });
+
+  const degree = new Map(nodes.map(n => [n.id, 0]));
+  for (const l of links) {
+    const s = l.source.id || l.source, t = l.target.id || l.target;
+    degree.set(s, (degree.get(s) || 0) + 1);
+    degree.set(t, (degree.get(t) || 0) + 1);
+  }
+  const isIsolate = n => (degree.get(n.id) || 0) === 0;
+  const cx = W / 2, cy = H / 2;
+  sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(n => n.id)
+      .distance(l => STATE.force.distance + 40)
+      .strength(() => STATE.force.linkStr / 100))
+    .force('charge', d3.forceManyBody().strength(() => -STATE.force.repulsion * 1.6))
+    .force('collide', d3.forceCollide().radius(n => rOf(n) + 16 + n.name.length * 2.4))
+    .force('x', d3.forceX(cx).strength(n => forceGravityFor(n, isIsolate)))
+    .force('y', d3.forceY(cy).strength(n => forceGravityFor(n, isIsolate)))
+    .on('tick', () => {
+      link.attr('d', l => {
+        const dx = l.target.x - l.source.x, dy = l.target.y - l.source.y;
+        const dr = Math.hypot(dx, dy) * 2.2;
+        return `M${l.source.x},${l.source.y}A${dr},${dr} 0 0,1 ${l.target.x},${l.target.y}`;
+      });
+      node.attr('transform', n => `translate(${n.x},${n.y})`);
+    });
+  sim._isolate = isIsolate;
+
+  clearTimeout(renderArch._t);
+  renderArch._t = setTimeout(fitView, nodes.length > 60 ? 900 : 550);
+}
+
+/* detail panel, file flavour: dependencies in/out + most-referenced symbols */
+function renderFileDetail(path) {
+  const box = $('#detail');
+  box.classList.add('on');
+  const file = MODEL.fileByPath.get(path);
+  $('#dtKind').textContent = 'file';
+  $('#dtKind').style.color = 'var(--file)';
+  $('#dtName').textContent = path.split('/').pop();
+  $('#dtPath').textContent = `${path} \u00b7 ${(file ? file.defs.filter(isActive).length : 0)} symbols`;
+
+  const { links } = computeFileGraph();
+  const asId = x => x.id || x;
+  const out = links.filter(l => asId(l.source) === path).sort((a, b) => b.n - a.n);
+  const inn = links.filter(l => asId(l.target) === path).sort((a, b) => b.n - a.n);
+  const fileList = (title, arr, color, side) => {
+    let html = `<h4><span style="color:${color}">${title}</span><span class="c">${arr.length}</span></h4>`;
+    if (!arr.length) return html + `<div class="dt-none">none</div>`;
+    return html + arr.map(l => {
+      const p = side === 'out' ? asId(l.target) : asId(l.source);
+      return `<div class="dt-item" data-gofile="${escHtml(p)}"><span class="ki doc">${ICON.doc}</span>` +
+        `<span class="txt" title="${escHtml(p)} \u00b7 ${l.n} links">${escHtml(p.split('/').pop())}` +
+        ` <span class="c">${l.n}</span></span></div>`;
+    }).join('');
+  };
+  $('#dtCalls').innerHTML = fileList('Depends on', out, 'var(--calls)', 'out');
+
+  const tops = (file ? file.defs : []).filter(d => isActive(d) && !d.isModule)
+    .sort((a, b) => b.refBy.size - a.refBy.size).slice(0, 8);
+  const topHtml = `<h4><span style="color:var(--ink-dim)">Top symbols</span><span class="c">${tops.length}</span></h4>` +
+    (tops.length ? tops.map(d =>
+      `<div class="dt-item" data-goto="${d.id}"><span class="ki ${d.kind}">${KI[d.kind]}</span>` +
+      `<span class="txt" title="${escHtml(d.qual)} \u00b7 referenced by ${d.refBy.size}">${escHtml(d.qual)}` +
+      ` <span class="c">${d.refBy.size}</span></span></div>`).join('')
+      : `<div class="dt-none">none</div>`);
+  $('#dtRefs').innerHTML = fileList('Used by', inn, 'var(--refs)', 'in') + topHtml;
+
+  box.querySelectorAll('[data-gofile]').forEach(it => it.addEventListener('click', () => {
+    STATE.archSel = it.dataset.gofile;
+    if (renderArch._restyle) renderArch._restyle();
+    renderFileDetail(it.dataset.gofile);
+  }));
+  box.querySelectorAll('[data-goto]').forEach(it => it.addEventListener('click', () => {
+    STATE.view = 'flow';
+    syncViewToggle();
+    selectDef(it.dataset.goto, true);
+  }));
 }
 
 /* =========================================================================
