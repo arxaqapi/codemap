@@ -52,8 +52,7 @@ button{font-family:inherit;cursor:pointer}
   align-items:center;justify-content:center;background:
   radial-gradient(1200px 600px at 50% -10%, var(--bg2) 0%, var(--bg) 55%);}
 .brand{display:flex;align-items:baseline;gap:14px;margin-bottom:6px}
-.brand .glyph{font-family:var(--mono);font-weight:700;font-size:15px;color:var(--bg);
-  background:var(--accent);padding:4px 8px;border-radius:5px;letter-spacing:-.5px}
+.brand .glyph{font-family:var(--mono);font-weight:700;color:var(--bg);padding:4px 8px;border-radius:5px;letter-spacing:-.5px}
 .brand h1{font-family:var(--mono);font-weight:500;font-size:26px;margin:0;letter-spacing:-.5px}
 .brand h1 b{color:var(--accent);font-weight:700}
 .tag{color:var(--ink-dim);font-size:14px;margin:0 0 34px;max-width:440px;text-align:center;line-height:1.5}
@@ -87,8 +86,7 @@ button{font-family:inherit;cursor:pointer}
 #app.on{display:grid}
 header{grid-column:1/4;display:flex;align-items:center;gap:16px;padding:0 14px;
   background:var(--panel);border-bottom:1px solid var(--line);z-index:10}
-header .glyph{font-family:var(--mono);font-weight:700;font-size:12px;color:var(--bg);
-  background:var(--accent);padding:3px 7px;border-radius:4px}
+header .glyph{font-family:var(--mono);font-weight:700;color:var(--bg);padding:3px 7px;border-radius:4px}
 header .repo{font-family:var(--mono);font-size:13px;color:var(--ink)}
 header .repo b{color:var(--accent)}
 header .stat{font-family:var(--mono);font-size:11px;color:var(--ink-faint);
@@ -308,6 +306,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .flow-row.is-guess .fl-name::before{content:'?';margin-right:5px;font-weight:700;color:var(--ink-faint)}
 .dt-item.guessed{opacity:.6}
 .dt-item .txt .c{color:var(--ink-faint);font-size:9.5px;margin-left:4px}
+.ver{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);
+  border:1px solid var(--line2);border-radius:8px;padding:1.5px 7px;flex:none;align-self:center}
+.brand .ver{margin-left:10px}
 .dt-item .gq{font-weight:700;color:var(--ink-faint)}
 .flow-row .fl-cyc{flex:none;font-size:9px;color:var(--refs);background:rgba(232,163,61,.12);
   padding:1px 7px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px}
@@ -364,7 +365,7 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
 
 <!-- ================= LANDING ================= -->
 <div id="landing">
-  <div class="brand"><span class="glyph">{ }</span><h1>code<b>·</b>map</h1></div>
+  <div class="brand"><span class="glyph">🗺️</span><h1>code<b>·</b>map</h1><span class="ver"></span></div>
   <p class="tag">Map a Python library's call graph. See which functions call what, trace dependencies through <code>N</code> hops, and focus on any file or class.</p>
 
   <div class="dropzone" id="dropzone">
@@ -382,9 +383,10 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
 <!-- ================= APP ================= -->
 <div id="app">
   <header>
-    <span class="glyph">{ }</span>
+    <span class="glyph">🗺️</span>
     <span class="repo" id="repoName"></span>
     <span class="stat" id="repoStat"></span>
+    <span class="ver"></span>
     <span class="grow"></span>
     <div class="depth-inline" title="Dependency / nesting depth">
       <span class="di-label">Depth</span>
@@ -593,510 +595,6 @@ function readTar(bytes) {
   return out;
 }
 const allZero = (b, o) => { for (let i = o; i < o + 512 && i < b.length; i++) if (b[i] !== 0) return false; return true; };
-
-/* =========================================================================
-   (2) PYTHON PARSER  (heuristic, string/comment/docstring aware)
-   ========================================================================= */
-function stripInline(line) {
-  let out = '', i = 0, q = null;
-  while (i < line.length) {
-    const c = line[i];
-    if (q) { if (c === '\\') { out += '  '; i += 2; continue; } if (c === q) { q = null; out += ' '; i++; continue; } out += ' '; i++; continue; }
-    if (c === '#') break;
-    if (c === '"' || c === "'") { q = c; out += ' '; i++; continue; }
-    out += c; i++;
-  }
-  return out;
-}
-/* returns per-line "code only" (docstrings + strings + comments blanked) */
-function scrub(src) {
-  const lines = src.split('\n'); const out = []; let triple = null;
-  for (let raw of lines) {
-    let line = raw;
-    if (triple) {
-      const idx = line.indexOf(triple);
-      if (idx === -1) { out.push(''); continue; }
-      line = ' '.repeat(idx + 3) + line.slice(idx + 3); triple = null;
-    }
-    let i = 0, res = '';
-    while (i < line.length) {
-      const t = line.slice(i, i + 3);
-      if (t === '"""' || t === "'''") {
-        const close = line.indexOf(t, i + 3);
-        if (close === -1) { res += line.slice(0, i); triple = t; line = res; i = line.length; break; }
-        line = line.slice(0, i) + ' '.repeat(close + 3 - i) + line.slice(close + 3); i = close + 3; continue;
-      }
-      i++;
-    }
-    out.push(stripInline(line));
-  }
-  return out;
-}
-
-const RESERVED = new Set(['if', 'for', 'while', 'return', 'print', 'with', 'and', 'or', 'not', 'in',
-  'is', 'else', 'elif', 'try', 'except', 'finally', 'lambda', 'yield', 'assert', 'raise', 'del',
-  'import', 'from', 'as', 'pass', 'break', 'continue', 'global', 'nonlocal', 'def', 'class',
-  'True', 'False', 'None', 'self', 'cls', 'super', 'range', 'len', 'int', 'str', 'float', 'bool',
-  'list', 'dict', 'set', 'tuple', 'type', 'isinstance', 'enumerate', 'zip', 'map', 'filter',
-  'open', 'input', 'format', 'sorted', 'reversed', 'sum', 'min', 'max', 'abs', 'any', 'all',
-  'getattr', 'setattr', 'hasattr', 'property', 'staticmethod', 'classmethod']);
-
-function parseFile(path, src) {
-  const lines = src.split('\n');
-  const code = scrub(src);
-  const defs = []; const stack = [];
-  const defRe = /^(\s*)(async\s+def|def|class)\s+([A-Za-z_]\w*)/;
-  const typeRe = /^([A-Za-z_]\w*)\s*(?::\s*TypeAlias)?\s*=\s*(.+)$/;
-
-  /* ---- imports: "import a.b as m", "from .x import A as B, C", "(…)" multi-line, "import *" */
-  const imports = [];            // {line, kind:'plain'|'from', mod, level, alias?, items?}
-  const importLines = new Set(); // 1-based lines occupied by import statements
-  for (let i = 0; i < lines.length; i++) {
-    const t = code[i].trim();
-    let mm;
-    if ((mm = t.match(/^from\s+([.\w]+)\s+import\s+(.*)$/))) {
-      let rest = mm[2], endI = i;
-      if (rest.includes('(') && !rest.includes(')')) {
-        while (endI + 1 < lines.length) {
-          endI++; rest += ' ' + code[endI].trim();
-          if (code[endI].includes(')')) break;
-        }
-      }
-      rest = rest.replace(/[()]/g, '');
-      const level = (mm[1].match(/^\.*/) || [''])[0].length;
-      const mod = mm[1].slice(level);
-      const items = rest.trim() === '*' ? '*' :
-        rest.split(',').map(s => s.trim()).filter(Boolean).map(s => {
-          const p = s.split(/\s+as\s+/);
-          return { name: p[0].trim(), alias: (p[1] || p[0]).trim() };
-        }).filter(it => /^[A-Za-z_]\w*$/.test(it.name) && /^[A-Za-z_]\w*$/.test(it.alias));
-      imports.push({ line: i + 1, kind: 'from', mod, level, items });
-      for (let k = i; k <= endI; k++) importLines.add(k + 1);
-      i = endI;
-    } else if ((mm = t.match(/^import\s+(.+)$/))) {
-      for (const part of mm[1].split(',')) {
-        const p = part.trim().split(/\s+as\s+/);
-        const mod = p[0].trim();
-        if (!/^[\w.]+$/.test(mod)) continue;
-        imports.push({ line: i + 1, kind: 'plain', mod, level: 0, alias: p[1] ? p[1].trim() : null });
-      }
-      importLines.add(i + 1);
-    }
-  }
-
-  for (let i = 0; i < lines.length; i++) {
-    const c = code[i];
-    if (c.trim() === '') continue;
-    const m = c.match(defRe);
-    if (m) {
-      const indent = m[1].length;
-      while (stack.length && indent <= stack[stack.length - 1].indent) stack.pop();
-      const parent = stack.length ? stack[stack.length - 1] : null;
-      const kind = m[2] === 'class' ? 'class' : 'function';
-      const qual = (parent ? parent.qual + '.' : '') + m[3];
-      // body start = after multiline signature colon
-      let bs = i, sig = c;
-      while (bs < lines.length && !/:\s*$/.test(sig.replace(/\s+$/, ''))) { bs++; sig = code[bs] || ':'; }
-      bs += 1;
-      const d = { id: path + '::' + qual, name: m[3], kind, qual, path, line: i + 1,
-        bodyStart: bs, end: lines.length, indent, parent: parent ? parent.id : null,
-        children: [], calls: new Set(), refBy: new Set(), callSites: [] };
-      if (parent) parent.children.push(d.id);
-      defs.push(d); stack.push(d);
-    } else if (indentOf(c) === 0) {
-      // module-level type alias / assignment used as "defined type"
-      const tm = c.trim().match(typeRe);
-      if (tm && !RESERVED.has(tm[1])) {
-        const rhs = tm[2];
-        const looksType = /TypeAlias|Union|Optional|List|Dict|Tuple|Callable|NewType|TypeVar|\[|\|/.test(rhs)
-          || /^[A-Z]/.test(tm[1]);
-        if (looksType && /[A-Za-z_]\w*\s*[\[|]|NewType|TypeVar|TypeAlias/.test(rhs) || /TypeVar|NewType|TypeAlias/.test(rhs)) {
-          const id = path + '::' + tm[1];
-          if (!defs.some(d => d.id === id))
-            defs.push({ id, name: tm[1], kind: 'type', qual: tm[1], path, line: i + 1,
-              bodyStart: i + 1, end: i + 1, indent: 0, parent: null, children: [],
-              calls: new Set(), refBy: new Set(), callSites: [] });
-        }
-      }
-    }
-  }
-  // compute body end lines for def/class
-  for (const d of defs) {
-    if (d.kind === 'type') continue;
-    for (let j = d.bodyStart; j < lines.length; j++) {
-      if (code[j].trim() === '') continue;
-      if (indentOf(code[j]) <= d.indent) { d.end = j; break; }
-    }
-  }
-  // attach contiguous decorator lines to the def they decorate
-  for (const d of defs) {
-    if (d.kind === 'type') { d.decoStart = d.line; continue; }
-    let ds = d.line;
-    while (ds > 1 && /^\s*@/.test(code[ds - 2])) ds--;
-    d.decoStart = ds;
-  }
-  // capture base-class names from class signatures (full multi-line signature)
-  for (const d of defs) {
-    d.baseNames = [];
-    if (d.kind !== 'class') continue;
-    const sig = code.slice(d.line - 1, Math.max(d.bodyStart, d.line)).join(' ');
-    const bm = sig.match(/^\s*class\s+\w+\s*\(([^)]*)\)/);
-    if (!bm) continue;
-    let depth = 0, cur = '';
-    const parts = [];
-    for (const ch of bm[1]) {
-      if (ch === '[') depth++;
-      else if (ch === ']') depth--;
-      if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; } else cur += ch;
-    }
-    parts.push(cur);
-    for (let p of parts) {
-      p = p.trim().replace(/\[.*$/, '');            // Generic[T] → Generic
-      if (/^[A-Za-z_][\w.]*$/.test(p) && !p.includes('=')) d.baseNames.push(p);
-    }
-  }
-  // synthetic <module> symbol: scripts with top-level executable code
-  // (calls outside any def/class would otherwise vanish from the graph)
-  const topSpans = defs.filter(d => !d.parent).map(d => [d.decoStart, d.end]);
-  const inTop = ln => topSpans.some(([a, b]) => ln >= a && ln <= b);
-  let firstTop = 0;
-  for (let j = 0; j < lines.length; j++) {
-    const t = code[j].trim();
-    if (!t) continue;
-    const ln = j + 1;
-    if (inTop(ln)) continue;
-    if (/^(import|from)\b/.test(t)) continue;   // bare imports alone don't make a script
-    if (/^@/.test(t)) continue;
-    firstTop = ln; break;
-  }
-  if (firstTop) {
-    defs.unshift({ id: path + '::<module>', name: '<module>', kind: 'file', qual: '<module>',
-      path, line: firstTop, bodyStart: 1, decoStart: 1, end: lines.length, indent: -1,
-      parent: null, children: [], calls: new Set(), refBy: new Set(), callSites: [],
-      isModule: true });
-  }
-  return { path, defs, code, lines, imports, importLines };
-}
-const indentOf = s => (s.match(/^(\s*)/)[1] || '').length;
-
-/* =========================================================================
-   (3) GRAPH MODEL — resolve call sites to defs across the project
-   ========================================================================= */
-function analyse(repo, pyFiles) {
-  const files = pyFiles.map(f => parseFile(f.path, f.text));
-  const defsById = new Map();
-  const byName = new Map();     // simple name -> [def]
-  const topByFile = new Map();  // path -> Map(name -> top-level def)
-  const fileByPath = new Map(files.map(f => [f.path, f]));
-  for (const f of files) {
-    const top = new Map();
-    topByFile.set(f.path, top);
-    for (const d of f.defs) {
-      defsById.set(d.id, d);
-      if (!byName.has(d.name)) byName.set(d.name, []);
-      byName.get(d.name).push(d);
-      if (!d.parent && !d.isModule) top.set(d.name, d);
-      d.extends = new Set(); d.extendedBy = new Set();
-    }
-  }
-
-  /* ---- module resolution: dotted import path -> project file. Suffix matching
-         tolerates archive root folders ("repo-main/") and src/ layouts. ---- */
-  const keyOf = p => p.replace(/\.py$/, '').replace(/\/__init__$/, '');
-  const modKeys = files.map(f => ({ segs: keyOf(f.path).split('/'), f }));
-  const byExact = new Map(modKeys.map(k => [k.segs.join('/'), k.f]));
-  const resolveModule = (fromPath, mod, level) => {
-    if (level > 0) {                               // relative: from .x / from ..y
-      const base = fromPath.split('/'); base.pop();
-      for (let i = 1; i < level; i++) base.pop();
-      const segs = base.concat(mod ? mod.split('.') : []);
-      return byExact.get(segs.join('/')) || null;
-    }
-    if (!mod) return null;
-    const want = mod.split('.');
-    const hits = modKeys.filter(k =>
-      k.segs.length >= want.length &&
-      want.every((s, i) => k.segs[k.segs.length - want.length + i] === s));
-    if (!hits.length) return null;
-    hits.sort((a, b) => a.segs.length - b.segs.length);  // closest to archive root wins
-    return hits[0].f;
-  };
-  const moduleDefOf = path => {
-    const ff = fileByPath.get(path);
-    return (ff && ff.defs.find(x => x.isModule)) || null;
-  };
-
-  /* ---- per-file name bindings from imports. An "external" binding means the name
-         is known to come from outside the project — never guess a target for it. */
-  for (const f of files) {
-    f.bindings = new Map();
-    f.starFiles = [];
-    for (const im of f.imports) {
-      if (im.kind === 'plain') {
-        const tf = resolveModule(f.path, im.mod, 0);
-        if (im.alias) f.bindings.set(im.alias, tf ? { type: 'module', file: tf.path } : { type: 'external' });
-        else f.bindings.set(im.mod.split('.')[0], { type: 'modpath', mod: im.mod, known: !!tf });
-      } else {
-        const tf = resolveModule(f.path, im.mod, im.level);
-        if (im.items === '*') { if (tf) f.starFiles.push(tf.path); continue; }
-        for (const it of im.items) {
-          f.bindings.set(it.alias, tf || im.level > 0
-            ? { type: 'symbol', file: tf ? tf.path : null, name: it.name, mod: im.mod, level: im.level }
-            : { type: 'external' });
-        }
-      }
-    }
-  }
-
-  /* symbol in a module's top level, following re-export chains (from .core import Engine
-     in an __init__.py makes pkg.Engine resolvable) */
-  function lookupSymbol(path, name, seen = new Set()) {
-    if (!path) return null;
-    const key = path + '|' + name;
-    if (seen.has(key)) return null;
-    seen.add(key);
-    const top = topByFile.get(path);
-    if (top && top.has(name)) return top.get(name);
-    const ff = fileByPath.get(path);
-    if (!ff) return null;
-    const b = ff.bindings.get(name);
-    if (b && b.type === 'symbol') return lookupSymbol(b.file, b.name, seen);
-    for (const sp of ff.starFiles) {
-      const hit = lookupSymbol(sp, name, seen);
-      if (hit) return hit;
-    }
-    return null;
-  }
-
-  /* method lookup through a class and its (resolved) bases */
-  function findMethod(cls, name, seen = new Set()) {
-    if (!cls || seen.has(cls.id)) return null;
-    seen.add(cls.id);
-    for (const cid of cls.children) {
-      const c = defsById.get(cid);
-      if (c && c.name === name) return c;
-    }
-    for (const bid of cls.extends) {
-      const hit = findMethod(defsById.get(bid), name, seen);
-      if (hit) return hit;
-    }
-    return null;
-  }
-  const findSuperMethod = (cls, name) => {
-    if (!cls) return null;
-    const seen = new Set([cls.id]);
-    for (const bid of cls.extends) {
-      const hit = findMethod(defsById.get(bid), name, seen);
-      if (hit) return hit;
-    }
-    return null;
-  };
-  const enclosingClass = d => {
-    let p = d.parent ? defsById.get(d.parent) : null;
-    while (p && p.kind !== 'class') p = p.parent ? defsById.get(p.parent) : null;
-    return p;
-  };
-  const byLocality = (cands, path) => {           // tie-break: longest shared path prefix
-    const segs = path.split('/');
-    let best = null, bestN = -1;
-    for (const c of cands) {
-      const cs = c.path.split('/');
-      let n = 0;
-      while (n < segs.length && n < cs.length && segs[n] === cs[n]) n++;
-      if (n > bestN) { bestN = n; best = c; }
-    }
-    return best;
-  };
-
-  /* walk a dotted chain into a module file: symbol first, then submodule */
-  function chainIntoModule(path, rest, d) {
-    if (!path) return null;
-    if (!rest.length) {
-      const md = moduleDefOf(path);
-      return md && md !== d ? md : null;
-    }
-    const sym = lookupSymbol(path, rest[0]);
-    if (sym) {
-      if (rest.length === 1) return sym === d ? null : sym;
-      if (sym.kind === 'class') return findMethod(sym, rest[1]);
-      return null;
-    }
-    const sub = byExact.get(keyOf(path) + '/' + rest[0]);
-    return sub ? chainIntoModule(sub.path, rest.slice(1), d) : null;
-  }
-
-  /* ---- the resolver: name chain -> def, using scope-aware priority:
-     self/cls -> inferred locals -> imports -> same file -> star imports ->
-     unique global -> path locality. Known-external names are never guessed. */
-  function resolveName(f, d, chain, ctx = {}) {
-    const n0 = chain[0];
-    if (n0 === 'self' || n0 === 'cls') {
-      if (chain.length < 2) return null;
-      return findMethod(enclosingClass(d), chain[1]);
-    }
-    if (ctx.vars && ctx.vars.has(n0)) {           // e = Engine() … e.run()
-      if (chain.length < 2) return null;
-      return findMethod(defsById.get(ctx.vars.get(n0)), chain[1]);
-    }
-    const b = f.bindings.get(n0);
-    if (b) {
-      if (b.type === 'external') return null;
-      if (b.type === 'symbol') {
-        const base = lookupSymbol(b.file, b.name);
-        if (!base) {                              // "from pkg import mod" — item is a submodule
-          const sub = resolveModule(f.path, b.mod ? b.mod + '.' + b.name : b.name, b.level || 0);
-          return sub ? chainIntoModule(sub.path, chain.slice(1), d) : null;
-        }
-        if (chain.length === 1) return base === d ? null : base;
-        if (base.kind === 'class') return findMethod(base, chain[1]);
-        return null;
-      }
-      if (b.type === 'module') return chainIntoModule(b.file, chain.slice(1), d);
-      if (b.type === 'modpath') {                 // import a.b.c → walk declared segments
-        if (!b.known) return null;
-        const modSegs = b.mod.split('.');
-        let k = 1;
-        while (k < chain.length && k < modSegs.length && chain[k] === modSegs[k]) k++;
-        const tf = resolveModule(f.path, modSegs.slice(0, k).join('.'), 0);
-        return tf ? chainIntoModule(tf.path, chain.slice(k), d) : null;
-      }
-    }
-    if (chain.length === 1) {
-      const top = topByFile.get(f.path);
-      if (top && top.has(n0) && top.get(n0) !== d) return top.get(n0);
-      const same = (byName.get(n0) || []).find(c => c.path === f.path && c.id !== d.id);
-      if (same) return same;
-      for (const sp of f.starFiles) {
-        const hit = lookupSymbol(sp, n0);
-        if (hit && hit !== d) return hit;
-      }
-      const all = (byName.get(n0) || []).filter(c => c.id !== d.id && !c.isModule);
-      const tops = all.filter(c => !c.parent);
-      const pool = tops.length ? tops : all;
-      if (!pool.length) return null;
-      if (pool.length === 1) return pool[0];
-      return byLocality(pool, f.path);
-    }
-    // dotted chain with an unresolved receiver
-    const recv = resolveName(f, d, [n0], ctx);
-    if (recv && recv.kind === 'class') {
-      const mm = findMethod(recv, chain[1]);
-      if (mm && mm !== d) return mm;
-    }
-    // obj.method(): link only when the method name is unambiguous project-wide
-    const last = chain[chain.length - 1];
-    const methods = (byName.get(last) || []).filter(c => c.parent && c.id !== d.id);
-    return methods.length === 1 ? methods[0] : null;
-  }
-
-  /* ---- pass A: inheritance (must precede body scans; findMethod walks it) ---- */
-  for (const f of files) for (const d of f.defs) {
-    if (d.kind !== 'class' || !d.baseNames.length) continue;
-    for (const bn of d.baseNames) {
-      const t = resolveName(f, d, bn.split('.'));
-      if (t && t.kind === 'class' && t.id !== d.id) {
-        d.extends.add(t.id);
-        t.extendedBy.add(d.id);
-      }
-    }
-  }
-
-  /* ---- pass B: resolve calls & references inside each def body ---- */
-  const callChainRe = /(?<![\w.])([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*\(/g;
-  const refTokenRe = /(?<![.\w])([A-Za-z_]\w*)(?![\w(])/g;
-  const superRe = /\bsuper\s*\(\s*\)\s*\.\s*([A-Za-z_]\w*)\s*\(/g;
-  const assignRe = /^\s*([A-Za-z_]\w*)\s*(?::[^=]*)?=(?!=)\s*([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*\(/;
-
-  for (const f of files) {
-    for (const d of f.defs) {
-      if (d.kind === 'type') continue;
-      const childSpans = (d.isModule
-        ? f.defs.filter(c => !c.parent && c !== d)
-        : f.defs.filter(c => c.parent === d.id))
-        .map(c => [c.decoStart || c.line, c.end]);
-      const inChild = ln => childSpans.some(([a, b]) => ln >= a && ln <= b);
-
-      const ctx = { vars: new Map() };
-      const seenCall = new Set();
-      const firstAt = new Map();   // targetId -> {line, name, via, viaCall}
-      const hit = (t, ln, name, via) => {
-        if (t && t.id !== d.id && !firstAt.has(t.id))
-          firstAt.set(t.id, { line: ln, name, via, viaCall: via === 'call' });
-      };
-
-      // the <module> symbol owns the file's import lines: each import is a dependency
-      if (d.isModule) {
-        for (const im of f.imports) {
-          if (im.kind === 'from' && im.items !== '*') {
-            for (const it of im.items) hit(resolveName(f, d, [it.alias]), im.line, it.alias, 'import');
-          } else {
-            const tf = resolveModule(f.path, im.mod, im.level);
-            if (tf) hit(moduleDefOf(tf.path), im.line, im.mod || tf.path.split('/').pop(), 'import');
-          }
-        }
-      }
-
-      for (let j = (d.decoStart || d.bodyStart) - 1; j < d.end; j++) {
-        const ln = j + 1;
-        if (inChild(ln)) continue;
-        if (f.importLines.has(ln)) continue;       // imports handled above
-        const line = f.code[j]; if (!line) continue;
-        let m;
-
-        // local type inference: name = SomeClass(...)
-        if ((m = line.match(assignRe)) && !RESERVED.has(m[1])) {
-          const t = resolveName(f, d, m[2].split(/\s*\.\s*/), ctx);
-          if (t && t.kind === 'class') ctx.vars.set(m[1], t.id);
-        }
-        // super().method() -> resolve through base classes only
-        superRe.lastIndex = 0;
-        while ((m = superRe.exec(line)))
-          hit(findSuperMethod(enclosingClass(d), m[1]), ln, 'super().' + m[1], 'call');
-
-        callChainRe.lastIndex = 0;
-        while ((m = callChainRe.exec(line))) {
-          const chain = m[1].split(/\s*\.\s*/);
-          const nm = chain[0];
-          if (chain.length === 1 && RESERVED.has(nm)) continue;
-          if (nm === 'super') continue;            // handled above
-          if (ln === d.line && chain.length === 1 && nm === d.name) continue;
-          seenCall.add(nm); seenCall.add(chain[chain.length - 1]);
-          hit(resolveName(f, d, chain, ctx), ln, m[1].replace(/\s+/g, ''), 'call');
-        }
-        refTokenRe.lastIndex = 0;
-        while ((m = refTokenRe.exec(line))) {
-          const nm = m[1];
-          if (RESERVED.has(nm)) continue;
-          if (ln === d.line && nm === d.name) continue;
-          if (seenCall.has(nm)) continue;
-          if (ctx.vars.has(nm)) continue;          // local variables aren't dependencies
-          if (nm.length <= 2 && /^[A-Z]+$/.test(nm)) continue;  // TypeVar noise
-          hit(resolveName(f, d, [nm], ctx), ln, nm, 'ref');
-        }
-      }
-      // inheritance edges always present, even when the base only appears dotted
-      if (d.kind === 'class') {
-        for (const bid of d.extends) {
-          if (!firstAt.has(bid)) {
-            const bd = defsById.get(bid);
-            firstAt.set(bid, { line: d.line, name: bd ? bd.name : bid, via: 'extends', viaCall: false });
-          } else firstAt.get(bid).via = 'extends';
-        }
-      }
-      // ordered call sites (source order), plus the unordered set the graph uses
-      d.callSites = [...firstAt.entries()]
-        .map(([id, info]) => ({ id, ...info }))
-        .sort((a, b) => a.line - b.line);
-      for (const cs of d.callSites) d.calls.add(cs.id);
-    }
-  }
-  // build reverse edges
-  for (const d of defsById.values())
-    for (const t of d.calls) { const td = defsById.get(t); if (td) td.refBy.add(d.id); }
-
-  const folderTree = buildFolderTree(files);
-  return { name: repo, files, defsById, fileByPath, byName, folderTree };
-}
 
 /* group files into a nested folder tree: {name, path, dirs:[], files:[fileObj]} */
 function buildFolderTree(files) {
@@ -1885,12 +1383,12 @@ def analyze(files_json):
     return json.dumps(Analyzer(files).run())
 `;
 
+const APP_VERSION = 'v0.0.16';
 const PYODIDE_URL = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';
-let PYODIDE = null, PY_FAILED = false;
+let PYODIDE = null;
 
 async function ensurePython(progress) {
-  if (PYODIDE) return true;
-  if (PY_FAILED || window.__forceLegacy) return false;
+  if (PYODIDE) return;
   try {
     if (typeof loadPyodide === 'undefined') {
       progress('Loading Python engine — first time only (~7 MB)…');
@@ -1898,7 +1396,7 @@ async function ensurePython(progress) {
         const s = document.createElement('script');
         s.src = PYODIDE_URL + 'pyodide.js';
         s.onload = res;
-        s.onerror = () => rej(new Error('could not load pyodide.js'));
+        s.onerror = () => { s.remove(); rej(new Error('script load failed')); };
         document.head.appendChild(s);
       });
     }
@@ -1906,33 +1404,22 @@ async function ensurePython(progress) {
     const p = await loadPyodide({ indexURL: PYODIDE_URL });
     p.runPython(PY_ANALYZER);
     PYODIDE = p;
-    return true;
   } catch (e) {
-    console.warn('Pyodide unavailable — using quick JS engine.', e);
-    PY_FAILED = true;
-    return false;
+    console.error('Pyodide failed to load:', e);
+    throw new Error('Could not load the Python analysis engine. ' +
+      'code·map needs access to cdn.jsdelivr.net — check your connection ' +
+      '(or an ad/script blocker) and try again.');
   }
 }
 
 async function analyseSmart(repo, pyFiles, progress) {
-  if (await ensurePython(progress)) {
-    try {
-      progress(`Analysing ${pyFiles.length} files (Python AST)…`);
+  await ensurePython(progress);
+  progress(`Analysing ${pyFiles.length} files…`);
       await new Promise(r => setTimeout(r, 30));   // let the spinner paint
       PYODIDE.globals.set('files_json',
         JSON.stringify(pyFiles.map(f => ({ path: f.path, text: f.text }))));
       const out = JSON.parse(PYODIDE.runPython('analyze(files_json)'));
       return buildModelFromPy(repo, pyFiles, out);
-    } catch (e) {
-      console.warn('Python analysis failed — using quick JS engine.', e);
-    }
-  }
-  progress(`Analysing ${pyFiles.length} files (quick engine)…`);
-  await new Promise(r => setTimeout(r, 30));
-  const m = analyse(repo, pyFiles);
-  m.engine = 'quick';
-  for (const d of m.defsById.values()) d.guess = new Set();
-  return m;
 }
 
 /* Python JSON -> the MODEL shape the UI consumes */
@@ -1990,11 +1477,10 @@ function updateStat() {
   const active = total - off;
   const edges = all.filter(d => !STATE.disabled.has(d.id))
     .reduce((a, d) => a + [...d.calls].filter(t => !STATE.disabled.has(t)).length, 0);
-  const eng = MODEL.engine === 'python' ? 'AST engine' : 'quick engine';
   const perr = MODEL.parseErrors ? ` · ${MODEL.parseErrors} unparsable` : '';
   $('#repoStat').textContent = (off
     ? `${MODEL.files.length} files · ${active}/${total} symbols · ${edges} edges · ${off} excluded`
-    : `${MODEL.files.length} files · ${total} symbols · ${edges} edges`) + ` · ${eng}` + perr;
+    : `${MODEL.files.length} files · ${total} symbols · ${edges} edges`) + perr;
 }
 
 /* =========================================================================
@@ -3075,6 +2561,7 @@ $('#codeBody').addEventListener('click', e => {
   if (!link || !link.dataset.goto) return;
   selectDef(link.dataset.goto, true);
 });
+document.querySelectorAll('.ver').forEach(e => e.textContent = APP_VERSION);
 $('#viewToggle').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
   STATE.view = b.dataset.view;
   syncViewToggle();
