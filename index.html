@@ -2684,14 +2684,53 @@ function showCode(id) {
     const body = $('#codeBody');
     const lines = file.lines;
     const gw = String(lines.length).length;
-    // per-file identifier resolver: prefer same-file def, else unique global def
-    const resolve = name => {
+
+    /* line-aware identifier resolver.
+       Priority: (1) the token IS a definition on this line;
+                 (2) an engine-resolved edge of the enclosing def (ground truth);
+                 (3) a method of the enclosing class (self.forward, recursion);
+                 (4) nearest same-file def of that name; (5) unique global. */
+    const fileDefs = file.defs || [];
+    const defAtLine = new Map();
+    for (const fd of fileDefs) defAtLine.set(fd.line + '|' + fd.name, fd.id);
+    const encloserOf = ln => {
+      let best = null;
+      for (const fd of fileDefs) {
+        if (fd.isModule || fd.kind === 'type') continue;
+        if (ln >= fd.line && ln <= fd.end &&
+            (!best || (fd.end - fd.line) < (best.end - best.line))) best = fd;
+      }
+      return best || fileDefs.find(x => x.isModule) || null;
+    };
+    const resolveAt = (name, ln) => {
+      const defHit = defAtLine.get(ln + '|' + name);
+      if (defHit) return defHit;
+      let host = encloserOf(ln);
+      while (host) {
+        for (const cs of host.callSites || []) {
+          const parts = cs.name ? String(cs.name).split('.') : [];
+          if (parts[parts.length - 1] === name) return cs.id;
+        }
+        host = host.parent ? MODEL.defsById.get(host.parent) : null;
+      }
+      let p = encloserOf(ln);
+      while (p) {
+        if (p.kind === 'class') {
+          const kid = (p.children || []).map(cid => MODEL.defsById.get(cid))
+            .find(c => c && c.name === name);
+          if (kid) return kid.id;
+          break;
+        }
+        p = p.parent ? MODEL.defsById.get(p.parent) : null;
+      }
       const cands = MODEL.byName.get(name);
       if (!cands) return null;
-      const same = cands.find(c => c.path === d.path);
-      if (same) return same.id;
-      const uniq = cands;
-      return uniq.length === 1 ? uniq[0].id : null;
+      const sameFile = cands.filter(c => c.path === d.path);
+      if (sameFile.length) {
+        sameFile.sort((a, b) => Math.abs(a.line - ln) - Math.abs(b.line - ln));
+        return sameFile[0].id;
+      }
+      return cands.length === 1 ? cands[0].id : null;
     };
     let html = '';
     for (let i = 0; i < lines.length; i++) {
@@ -2699,7 +2738,7 @@ function showCode(id) {
       // only linkify code lines (skip the scrubbed strings/comments by using raw line;
       // hlLine already guards strings & comments internally)
       html += `<div class="cline" data-ln="${i + 1}"><span class="gutter">${g}</span>` +
-        `<span class="src">${hlLine(escHtml(lines[i]) || ' ', resolve)}</span></div>`;
+        `<span class="src">${hlLine(escHtml(lines[i]) || ' ', name => resolveAt(name, i + 1))}</span></div>`;
     }
     body.innerHTML = html;
     codeState.path = d.path;
