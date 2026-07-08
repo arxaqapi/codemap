@@ -8,6 +8,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<div id="palette" style="display:none">
+  <div class="pal-card">
+    <input id="palInput" placeholder="Jump to symbol or file…" autocomplete="off" spellcheck="false">
+    <div class="pal-results" id="palResults"></div>
+    <div class="pal-hint">↑↓ navigate · ⏎ open · esc close</div>
+  </div>
+</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
@@ -127,7 +134,7 @@ header .icon-btn:hover{border-color:var(--accent);color:var(--ink)}
 .chip[data-k="class"].on{border-color:var(--cls)}
 .chip[data-k="type"].on{border-color:var(--type)}
 .chip[data-k="file"].on{border-color:var(--file)}
-#chipGuess.on{border-color:var(--ink-faint)}
+#chipGuess.on,#chipDocs.on{border-color:var(--ink-faint)}
 .sw-dot{background:none!important;border:1.5px dotted var(--ink-dim);border-radius:50%}
 .tree{flex:1;overflow-y:auto;padding:6px 0 40px}
 .tnode{font-family:var(--mono);font-size:12px;user-select:none}
@@ -315,6 +322,52 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .ver{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);
   border:1px solid var(--line2);border-radius:8px;padding:1.5px 7px;flex:none;align-self:center}
 .brand .ver{margin-left:10px}
+/* --- docstrings --- */
+.dt-doc{padding:9px 12px;border-bottom:1px solid var(--line);font-size:11.5px;line-height:1.55;color:var(--ink-dim);max-height:280px;overflow-y:auto}
+.dt-doc p{margin:0 0 7px}
+.dt-doc p:last-child{margin-bottom:0}
+.dt-doc h5{margin:9px 0 4px;font-size:9.5px;letter-spacing:.8px;text-transform:uppercase;color:var(--ink-faint)}
+.dt-doc code{font-family:var(--mono);font-size:10.5px;background:var(--bg2);border:1px solid var(--line);border-radius:4px;padding:0 4px;color:var(--ink)}
+.dt-doc pre{font-family:var(--mono);font-size:10.5px;background:var(--bg2);border:1px solid var(--line);border-radius:7px;padding:7px 9px;margin:6px 0;overflow-x:auto;color:var(--ink-dim)}
+.dt-doc ul{margin:4px 0 7px;padding-left:18px}
+.dt-doc li{margin:2px 0}
+.dt-doc .dfield{margin:2px 0;font-size:11px}
+.dt-doc .dfield b{color:var(--type);font-weight:600;font-family:var(--mono);font-size:10.5px}
+.kmath{font-family:var(--mono);font-size:10.5px;color:var(--type);background:rgba(126,231,135,.07);border-radius:4px;padding:0 3px}
+.kmath.krendered{background:none;padding:0;font-size:inherit;color:var(--ink)}
+.kmath.kdisp{display:block;text-align:center;margin:8px 0}
+/* --- flow inline docs (the literate layer) --- */
+.flow-row{flex-wrap:wrap}
+.fl-doc{flex-basis:100%;min-width:0;padding-left:34px;font-size:10px;font-style:italic;color:var(--ink-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5}
+/* --- command palette --- */
+#palette{position:fixed;inset:0;z-index:60;background:rgba(5,9,14,.55);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding-top:12vh}
+.pal-card{width:min(620px,92vw);background:var(--bg1);border:1px solid var(--line2);border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.5);overflow:hidden}
+#palInput{width:100%;box-sizing:border-box;background:none;border:none;outline:none;color:var(--ink);font-family:var(--mono);font-size:14px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.pal-results{max-height:46vh;overflow-y:auto;padding:5px}
+.pal-item{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;cursor:pointer;min-width:0}
+.pal-item.sel,.pal-item:hover{background:var(--bg2)}
+.pal-lab{font-family:var(--mono);font-size:12px;color:var(--ink);flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pal-lab b{color:var(--accent);font-weight:700}
+.pal-sub{font-family:var(--mono);font-size:10px;color:var(--ink-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:60px}
+.pal-sub b{color:var(--accent);font-weight:700}
+.pal-doc{font-size:10px;font-style:italic;color:var(--ink-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none;max-width:32%}
+.pal-none{padding:18px;text-align:center;color:var(--ink-faint);font-family:var(--mono);font-size:11px}
+.pal-hint{padding:7px 14px;border-top:1px solid var(--line);font-family:var(--mono);font-size:9.5px;color:var(--ink-faint)}
+/* --- start here --- */
+.start-here{max-width:980px;margin:26px auto;padding:0 22px}
+.start-here h3{font-size:13px;letter-spacing:2.5px;text-transform:uppercase;color:var(--ink-faint);margin:0 0 16px;font-weight:600}
+.sh-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:22px}
+.sh-col h4{margin:0 0 8px;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--ink-dim);font-weight:600}
+.sh-item{display:flex;gap:9px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;margin-bottom:7px;cursor:pointer;transition:.12s;min-width:0}
+.sh-item:hover{border-color:var(--accent);background:var(--bg2)}
+.sh-txt{min-width:0;flex:1}
+.sh-nm{font-family:var(--mono);font-size:12px;color:var(--ink);display:flex;align-items:baseline;gap:7px}
+.sh-nm .c{font-size:9px;color:var(--ink-faint);font-weight:400}
+.sh-sub{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sh-doc{font-size:10.5px;font-style:italic;color:var(--ink-dim);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sh-tips{margin-top:20px;font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-align:center}
+.sh-none{color:var(--ink-faint);font-size:12px}
+
 .dt-item .gq{font-weight:700;color:var(--ink-faint)}
 .flow-row .fl-cyc{flex:none;font-size:9px;color:var(--refs);background:rgba(232,163,61,.12);
   padding:1px 7px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px}
@@ -419,13 +472,14 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
 
   <!-- LEFT: BROWSER -->
   <aside id="side">
-    <div class="side-search"><input id="treeSearch" placeholder="Filter symbols…" spellcheck="false"></div>
+    <div class="side-search"><input id="treeSearch" placeholder="Filter…  (Ctrl+K to jump)" spellcheck="false"></div>
     <div class="filter-chips" id="chips">
       <button class="chip on" data-k="function"><span class="sw" style="background:var(--fn)"></span>func</button>
       <button class="chip on" data-k="class"><span class="sw" style="background:var(--cls)"></span>class</button>
       <button class="chip on" data-k="type"><span class="sw" style="background:var(--type)"></span>type</button>
       <button class="chip on" data-k="file" title="Top-level script code (module bodies, __main__ blocks)"><span class="sw" style="background:var(--file)"></span>script</button>
       <button class="chip on" id="chipGuess" title="Name-match edges the engine could not prove — dotted in the graph"><span class="sw sw-dot"></span>guesses</button>
+      <button class="chip on" id="chipDocs" title="Show docstring first lines inline in the flow tree"><span class="sw" style="background:var(--ink-dim)"></span>docs</button>
     </div>
     <div class="incl-bar">
       <span class="ib-label">Analysis</span>
@@ -451,6 +505,7 @@ header .icon-btn.on{border-color:var(--accent);color:var(--ink);background:rgba(
       <div class="dt-kind" id="dtKind"></div>
       <div class="dt-name" id="dtName"></div>
       <div class="dt-path" id="dtPath"></div>
+      <div class="dt-doc" id="dtDoc" style="display:none"></div>
       <div class="dt-sec" id="dtCalls"></div>
       <div class="dt-sec" id="dtRefs"></div>
     </div>
@@ -520,6 +575,95 @@ const ICON = {
   fit: '<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 4V1.5H4M8 1.5h2.5V4M10.5 8v2.5H8M4 10.5H1.5V8"/></svg>',
 };
 
+/* =========================================================================
+   DOCSTRINGS — literate rendering: paragraphs, sections, doctests, fields,
+   inline code, and LaTeX math (KaTeX, lazily loaded from the CDN)
+   ========================================================================= */
+const docLine = d => ((d && d.doc) || '').split('\n')[0].trim();
+
+const KATEX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/';
+let katexLoading = null;
+function ensureKatex() {
+  if (window.katex) return Promise.resolve(true);
+  if (katexLoading) return katexLoading;
+  katexLoading = new Promise(res => {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet'; css.href = KATEX_URL + 'katex.min.css';
+    document.head.appendChild(css);
+    const s = document.createElement('script');
+    s.src = KATEX_URL + 'katex.min.js';
+    s.onload = () => res(true);
+    s.onerror = () => res(false);            // graceful: raw TeX stays visible
+    document.head.appendChild(s);
+  });
+  return katexLoading;
+}
+async function upgradeMath(container) {
+  const nodes = container.querySelectorAll('.kmath:not(.krendered)');
+  if (!nodes.length) return;
+  if (!(await ensureKatex()) || !window.katex) return;
+  nodes.forEach(n => {
+    try {
+      window.katex.render(n.textContent, n, {
+        displayMode: n.classList.contains('kdisp'), throwOnError: false });
+      n.classList.add('krendered');
+    } catch (e) { /* leave raw TeX visible */ }
+  });
+}
+
+function renderDocstring(doc) {
+  if (!doc) return '';
+  const math = [];
+  let txt = doc;
+  const stash = (tex, display) => { math.push({ tex: tex.trim(), display }); return '\u0000M' + (math.length - 1) + '\u0000'; };
+  // reST ".. math::" directive with indented body
+  txt = txt.replace(/^\.\.[ \t]+math::[ \t]*\n((?:[ \t]+\S.*(?:\n|$)|\n)+)/gm,
+    (m, body) => stash(body.replace(/^[ \t]+/gm, ''), true) + '\n');
+  txt = txt.replace(/\$\$([\s\S]+?)\$\$/g, (m, t) => stash(t, true));
+  txt = txt.replace(/\\\[([\s\S]+?)\\\]/g, (m, t) => stash(t, true));
+  txt = txt.replace(/\\\((.+?)\\\)/g, (m, t) => stash(t, false));
+  txt = txt.replace(/(?<![\w$\\])\$([^\s$][^$\n]*?[^\s$]|[^\s$])\$(?![\w$])/g, (m, t) => stash(t, false));
+
+  const lines = escHtml(txt).split('\n');
+  const out = [];
+  let para = [], list = null, pre = null;
+  const flushPara = () => { if (para.length) { out.push('<p>' + para.join(' ') + '</p>'); para = []; } };
+  const flushList = () => { if (list) { out.push('<ul>' + list.join('') + '</ul>'); list = null; } };
+  const flushPre = () => { if (pre) { out.push('<pre>' + pre.join('\n') + '</pre>'); pre = null; } };
+  const flushAll = () => { flushPara(); flushList(); flushPre(); };
+  const SECTION = /^(Args|Arguments|Parameters|Returns?|Yields?|Raises|Attributes|Examples?|Notes?|References?|See Also|Warnings?|Warns)\s*:?\s*$/;
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i], t = ln.trim();
+    if (pre) {
+      if (t.startsWith('&gt;&gt;&gt;') || t.startsWith('...') || ln.startsWith('    ')) { pre.push(t); continue; }
+      flushPre();
+    }
+    if (!t) { flushAll(); continue; }
+    if (t.startsWith('&gt;&gt;&gt;')) { flushAll(); pre = [t]; continue; }
+    if (SECTION.test(t)) {
+      flushAll();
+      out.push('<h5>' + t.replace(/:$/, '') + '</h5>');
+      if (lines[i + 1] !== undefined && /^\s*-{3,}\s*$/.test(lines[i + 1])) i++;  // numpy underline
+      continue;
+    }
+    const fm = t.match(/^:(\w+)\s*([\w.*]+)?\s*:\s*(.*)$/);
+    if (fm) { flushAll(); out.push('<div class="dfield"><b>' + fm[1] + (fm[2] ? ' ' + fm[2] : '') + '</b> ' + fm[3] + '</div>'); continue; }
+    const bm = t.match(/^[-*\u2022]\s+(.*)$/);
+    if (bm) { flushPara(); flushPre(); if (!list) list = []; list.push('<li>' + bm[1] + '</li>'); continue; }
+    flushList();
+    para.push(t);
+  }
+  flushAll();
+  let html = out.join('');
+  html = html.replace(/``([^`]+)``/g, '<code>$1</code>').replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/\u0000M(\d+)\u0000/g, (m, i) => {
+    const seg = math[+i];
+    return '<span class="kmath' + (seg.display ? ' kdisp' : '') + '">' + escHtml(seg.tex) + '</span>';
+  });
+  return html;
+}
+
+
 /* global analysis state */
 let MODEL = null;          // {files:[{path,defs:[...]}], defsById:Map, name}
 let STATE = {
@@ -528,6 +672,7 @@ let STATE = {
   depth: 2,
   kinds: new Set(['function', 'class', 'type', 'file']),
   showGuess: true,
+  showDocs: true,
   archSel: null,
   focus: null,             // {type:'symbol'|'file', id}
   selected: null,          // def id highlighted
@@ -770,13 +915,30 @@ class Analyzer:
         return None
 
     def _collect(self, m, tree):
+        def is_entry_fn(st):
+            if st.name in ('main', 'cli', 'run'):
+                return True
+            for dec in st.decorator_list:
+                t = ast.unparse(dec)
+                if any(k in t for k in ('command', 'route', 'task', 'cli', 'entry_point', 'hookimpl')):
+                    return True
+            return False
+
         def walk(body, parent, pfx):
             for st in body:
                 if isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     d = self._mkdef(m, st.name, 'function', pfx + st.name, st, parent)
+                    doc = ast.get_docstring(st, clean=True)
+                    if doc:
+                        d['doc'] = doc[:6000]
+                    if parent is None and is_entry_fn(st):
+                        d['entry'] = True
                     walk(st.body, d, pfx + st.name + '.')
                 elif isinstance(st, ast.ClassDef):
                     d = self._mkdef(m, st.name, 'class', pfx + st.name, st, parent)
+                    doc = ast.get_docstring(st, clean=True)
+                    if doc:
+                        d['doc'] = doc[:6000]
                     walk(st.body, d, pfx + st.name + '.')
                 elif parent is None:
                     alias = self._is_type_alias(st)
@@ -795,17 +957,28 @@ class Analyzer:
             if isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
                                ast.Import, ast.ImportFrom)):
                 continue
-            if i == 0 and isinstance(st, ast.Expr) and isinstance(st.value, ast.Constant) \
-               and isinstance(st.value.value, str):
+            if (i == 0 and isinstance(st, ast.Expr) and isinstance(st.value, ast.Constant)
+                    and isinstance(st.value.value, str)):
                 continue                          # module docstring
             if self._is_type_alias(st):
                 continue
             top.append(st)
+        mdoc = ast.get_docstring(tree, clean=True)
+        m['doc'] = (mdoc or '')[:6000]
         if top:
             md = self._mkdef(m, '<module>', 'file', '<module>', None, None, is_module=True)
             md['line'] = top[0].lineno
             md['end'] = max(getattr(s, 'end_lineno', s.lineno) for s in top)
             md['_body'] = top
+            if mdoc:
+                md['doc'] = mdoc[:6000]
+            for st in top:
+                if isinstance(st, ast.If):
+                    t = st.test
+                    if (isinstance(t, ast.Compare) and isinstance(t.left, ast.Name)
+                            and t.left.id == '__name__'):
+                        md['entry'] = True
+                        break
             m['module_def'] = md
             # <module> owns everything top-level for browsing order: keep it first
             m['defs'].remove(md)
@@ -1306,11 +1479,10 @@ class Analyzer:
                             meths = [c for c in an.by_name.get(n.func.attr, []) if c['parent']]
                             if len(meths) == 1:
                                 an.edge(d, meths[0], n.lineno, ast.unparse(n.func), 'call', 'guess')
+                    if isinstance(n.func, ast.Attribute):
+                        # the receiver carries its own dependencies: Engine().run(),
+                        # module aliases, class-method receivers
                             self.visit(n.func.value)
-                    elif v is None and isinstance(n.func, ast.Name):
-                        pass
-                    if isinstance(n.func, ast.Attribute) and v is not None:
-                        pass                        # receiver resolved; don't re-visit it
                 for a in n.args:
                     self.visit(a)
                 for k in n.keywords:
@@ -1382,7 +1554,7 @@ class Analyzer:
         for path in self.files:
             m = self.mods[path]
             out_files.append({
-                'path': path, 'err': m['err'],
+                'path': path, 'err': m['err'], 'doc': m.get('doc', ''),
                 'defs': [{k: v for k, v in d.items() if not k.startswith('_')} for d in m['defs']],
             })
         return {'files': out_files}
@@ -1393,7 +1565,7 @@ def analyze(files_json):
     return json.dumps(Analyzer(files).run())
 `;
 
-const APP_VERSION = 'v0.0.18';
+const APP_VERSION = 'v0.0.19';
 const PYODIDE_URL = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';
 let PYODIDE = null;
 
@@ -1436,7 +1608,7 @@ async function analyseSmart(repo, pyFiles, progress) {
 function buildModelFromPy(repo, pyFiles, out) {
   const srcByPath = new Map(pyFiles.map(f => [f.path, f.text]));
   const files = out.files.map(fo => ({
-    path: fo.path, defs: fo.defs, err: fo.err,
+    path: fo.path, defs: fo.defs, err: fo.err, doc: fo.doc || '',
     lines: (srcByPath.get(fo.path) || '').split('\n'),
   }));
   const defsById = new Map(), byName = new Map();
@@ -1467,10 +1639,12 @@ async function buildAndLaunch(repo, pyFiles) {
   $('#repoStat').textContent = `${MODEL.files.length} files · ${nDefs} symbols · ${nEdges} edges`;
   $('#landing').style.display = 'none';
   $('#app').classList.add('on');
-  STATE = { view: 'flow', mode: 'calls', depth: 2, kinds: new Set(['function', 'class', 'type', 'file']), showGuess: true, archSel: null, focus: null, selected: null, search: '', disabled: new Set(), force: { ...FORCE_DEFAULTS } };
-  document.querySelectorAll('#chips .chip:not(#chipGuess)').forEach(c => c.classList.toggle('on', STATE.kinds.has(c.dataset.k)));
+  STATE = { view: 'flow', mode: 'calls', depth: 2, kinds: new Set(['function', 'class', 'type', 'file']), showGuess: true, showDocs: true, archSel: null, focus: null, selected: null, search: '', disabled: new Set(), force: { ...FORCE_DEFAULTS } };
+  document.querySelectorAll('#chips .chip[data-k]').forEach(c => c.classList.toggle('on', STATE.kinds.has(c.dataset.k)));
   $('#chipGuess').classList.toggle('on', STATE.showGuess);
+  $('#chipDocs').classList.toggle('on', STATE.showDocs);
   navReset();
+  palBuildIndex();
   syncForceSliders();
   codeState = { path: null };
   syncViewToggle();
@@ -1651,7 +1825,7 @@ function buildDefRow(d, container, depth, matchDef) {
   row.innerHTML =
     `<span class="tw">${hasKids ? '▾' : ''}</span>${checkboxHtml(st)}` +
     `<span class="ki ${d.kind}">${KI[d.kind]}</span>` +
-    `<span class="nm${d.isModule ? ' mod' : ''}" title="${escHtml(d.qual)}">${escHtml(d.name)}</span>` +
+    `<span class="nm${d.isModule ? ' mod' : ''}" title="${escHtml(d.qual + (docLine(d) ? ' \u2014 ' + docLine(d) : ''))}">${escHtml(d.name)}</span>` +
     `<span class="ln">${d.line}</span>` +
     `<span class="focusbtn" title="Focus / entry point">${ICON.focus}</span>`;
   const childBox = el('div', 'tchildren');
@@ -1794,7 +1968,9 @@ function renderFlow() {
         .sort((a, b) => a.line - b.line);
       if (roots.length) { renderFlowForest(host, roots, dir); return; }
     }
-    host.innerHTML = `<div class="flow-empty">Select a function, class, or type to trace its ${STATE.mode === 'calls' ? 'call flow' : 'callers'} in source order.<br><br>The tree follows the order calls appear in the code, and nests by dependency depth.</div>`;
+    host.innerHTML = buildStartHere();
+    host.querySelectorAll('.sh-item').forEach(it =>
+      it.addEventListener('click', () => selectDef(it.dataset.goto, true)));
     return;
   }
   renderFlowForest(host, [MODEL.defsById.get(rootId)].filter(Boolean), dir);
@@ -1840,10 +2016,12 @@ function buildFlowNode(d, dir, depth, onPath, isRoot) {
 
   const twig = hasKids ? '▾' : (willRecurse ? '↻' : '·');
   const lineTag = `<span class="fl-ln">${d.path.split('/').pop()}:${d.line}</span>`;
+  const dl = STATE.showDocs ? docLine(d) : '';
   row.innerHTML =
     `<span class="fl-tw">${twig}</span>` +
     `<span class="ki ${d.kind}">${KI[d.kind]}</span>` +
     `<span class="fl-name${d.isModule ? ' mod' : ''}">${escHtml(d.name)}</span>` +
+    (dl ? `<span class="fl-doc" title="${escHtml(dl)}">${escHtml(dl.slice(0, 120))}</span>` : '') +
     (d.qual.includes('.') ? `<span class="fl-qual">${escHtml(d.qual.split('.').slice(0, -1).join('.'))}</span>` : '') +
     lineTag +
     (willRecurse ? '<span class="fl-cyc">recursion</span>' : '') +
@@ -2261,6 +2439,10 @@ function renderFileDetail(path) {
   $('#dtKind').style.color = 'var(--file)';
   $('#dtName').textContent = path.split('/').pop();
   $('#dtPath').textContent = `${path} \u00b7 ${(file ? file.defs.filter(isActive).length : 0)} symbols`;
+  const fdoc = renderDocstring(file && file.doc);
+  $('#dtDoc').innerHTML = fdoc;
+  $('#dtDoc').style.display = fdoc ? 'block' : 'none';
+  if (fdoc) upgradeMath($('#dtDoc'));
 
   const { links } = computeFileGraph();
   const asId = x => x.id || x;
@@ -2304,6 +2486,138 @@ function renderFileDetail(path) {
 /* =========================================================================
    (6) SELECTION / FOCUS / DETAIL
    ========================================================================= */
+
+/* =========================================================================
+   COMMAND PALETTE — Ctrl/Cmd+K fuzzy jump to any symbol or file
+   ========================================================================= */
+const PAL = { items: [], results: [], sel: 0, open: false };
+
+function palBuildIndex() {
+  PAL.items = [];
+  for (const d of MODEL.defsById.values()) {
+    PAL.items.push({ type: 'def', id: d.id, kind: d.kind,
+      label: d.isModule ? d.path.split('/').pop() + ' \u203a <module>' : d.qual,
+      sub: d.path, doc: docLine(d) });
+  }
+  for (const f of MODEL.files) {
+    PAL.items.push({ type: 'file', id: f.path, kind: 'file',
+      label: f.path.split('/').pop(), sub: f.path, doc: docLine(f) });
+  }
+}
+
+function fuzzy(q, s) {
+  const ls = s.toLowerCase();
+  let score = 0, qi = 0;
+  const pos = [];
+  for (let i = 0; i < ls.length && qi < q.length; i++) {
+    if (ls[i] === q[qi]) {
+      score += (pos.length && pos[pos.length - 1] === i - 1) ? 4
+        : (i === 0 || /[^a-z0-9]/.test(ls[i - 1])) ? 3 : 1;
+      pos.push(i); qi++;
+    }
+  }
+  if (qi < q.length) return null;
+  return { score: score - s.length * .02, pos };
+}
+
+function palSearch(q) {
+  q = q.trim().toLowerCase();
+  if (!q) return [];
+  const hits = [];
+  for (const it of PAL.items) {
+    const a = fuzzy(q, it.label), b = fuzzy(q, it.sub);
+    const best = a && b ? (a.score * 1.5 >= b.score ? { s: a.score * 1.5, pos: a.pos, on: 'label' } : { s: b.score, pos: b.pos, on: 'sub' })
+      : a ? { s: a.score * 1.5, pos: a.pos, on: 'label' }
+      : b ? { s: b.score, pos: b.pos, on: 'sub' } : null;
+    if (best) hits.push({ it, ...best });
+  }
+  hits.sort((x, y) => y.s - x.s);
+  return hits.slice(0, 12);
+}
+
+const palMark = (s, pos) => {
+  const set = new Set(pos);
+  let out = '';
+  for (let i = 0; i < s.length; i++) out += set.has(i) ? '<b>' + escHtml(s[i]) + '</b>' : escHtml(s[i]);
+  return out;
+};
+
+function palRender() {
+  const box = $('#palResults');
+  if (!PAL.results.length) {
+    box.innerHTML = $('#palInput').value.trim()
+      ? '<div class="pal-none">no matches</div>'
+      : '<div class="pal-none">type to search symbols and files</div>';
+    return;
+  }
+  box.innerHTML = PAL.results.map((r, i) => {
+    const lab = r.on === 'label' ? palMark(r.it.label, r.pos) : escHtml(r.it.label);
+    const sub = r.on === 'sub' ? palMark(r.it.sub, r.pos) : escHtml(r.it.sub);
+    return `<div class="pal-item${i === PAL.sel ? ' sel' : ''}" data-i="${i}">` +
+      `<span class="ki ${r.it.kind}">${r.it.kind === 'file' && r.it.type === 'file' ? ICON.doc : KI[r.it.kind]}</span>` +
+      `<span class="pal-lab">${lab}</span><span class="pal-sub">${sub}</span>` +
+      (r.it.doc ? `<span class="pal-doc">${escHtml(r.it.doc.slice(0, 70))}</span>` : '') +
+      `</div>`;
+  }).join('');
+  box.querySelectorAll('.pal-item').forEach(el2 =>
+    el2.addEventListener('click', () => palGo(PAL.results[+el2.dataset.i].it)));
+  const cur = box.querySelector('.pal-item.sel');
+  if (cur) cur.scrollIntoView({ block: 'nearest' });
+}
+
+function palGo(it) {
+  palClose();
+  if (it.type === 'file') {
+    STATE.view = 'arch'; STATE.archSel = it.id;
+    syncViewToggle(); renderCenter(); renderFileDetail(it.id); navPush();
+  } else {
+    if (STATE.view === 'arch') { STATE.view = 'flow'; syncViewToggle(); }
+    selectDef(it.id, true);
+  }
+}
+
+function palOpen() {
+  if (!MODEL) return;
+  PAL.open = true; PAL.sel = 0; PAL.results = [];
+  $('#palette').style.display = 'flex';
+  const inp = $('#palInput');
+  inp.value = ''; palRender(); inp.focus();
+}
+function palClose() { PAL.open = false; $('#palette').style.display = 'none'; }
+
+/* =========================================================================
+   START HERE — orientation panel shown when nothing is selected
+   ========================================================================= */
+function buildStartHere() {
+  const defs = [...MODEL.defsById.values()].filter(isActive);
+  const entries = defs.filter(d => d.entry)
+    .sort((a, b) => a.path.split('/').length - b.path.split('/').length).slice(0, 8);
+  const core = defs.filter(d => !d.isModule && d.refBy.size > 0)
+    .sort((a, b) => b.refBy.size - a.refBy.size).slice(0, 8);
+  const bases = defs.filter(d => d.kind === 'class' && d.extendedBy.size > 0)
+    .sort((a, b) => b.extendedBy.size - a.extendedBy.size).slice(0, 6);
+  const item = (d, count, unit) => {
+    const nm = d.isModule ? d.path.split('/').pop() : d.name;
+    const dl = docLine(d);
+    return `<div class="sh-item" data-goto="${d.id}">` +
+      `<span class="ki ${d.kind}">${KI[d.kind]}</span>` +
+      `<div class="sh-txt"><div class="sh-nm">${escHtml(nm)}` +
+      (count ? `<span class="c">${count} ${unit}</span>` : '') + `</div>` +
+      `<div class="sh-sub">${escHtml(d.path)}</div>` +
+      (dl ? `<div class="sh-doc">${escHtml(dl.slice(0, 110))}</div>` : '') +
+      `</div></div>`;
+  };
+  const col = (title, arr, fmt) => arr.length
+    ? `<div class="sh-col"><h4>${title}</h4>${arr.map(fmt).join('')}</div>` : '';
+  const cols = col('Entry points', entries, d => item(d, 0)) +
+    col('Core API \u00b7 most referenced', core, d => item(d, d.refBy.size, 'refs')) +
+    col('Base classes \u00b7 most extended', bases, d => item(d, d.extendedBy.size, 'sub'));
+  return `<div class="start-here"><h3>Start here</h3>` +
+    (cols ? `<div class="sh-cols">${cols}</div>`
+      : `<div class="sh-none">No obvious entry points found \u2014 pick a symbol in the browser on the left.</div>`) +
+    `<div class="sh-tips">Ctrl+K jump anywhere \u00b7 double-click a graph node to focus it \u00b7 \u2039 \u203a history \u00b7 Files view for architecture</div></div>`;
+}
+
 /* =========================================================================
    NAVIGATION HISTORY — back / forward through selection, focus and file
    locations (Alt+Left / Alt+Right, mouse side buttons, topbar chevrons)
@@ -2382,6 +2696,7 @@ function navSync() {
 
 function selectDef(id, scroll) {
   STATE.selected = id;
+  STATE.archSel = null;   // a symbol location supersedes any file selection
   if (STATE.focus && STATE.focus.type === 'symbol') STATE.focus = { type: 'symbol', id }; // keep in sync
   renderTree();
   renderCenter();
@@ -2426,6 +2741,10 @@ function renderDetail(id) {
   $('#dtKind').style.color = kindColor(d.kind);
   $('#dtName').textContent = d.qual;
   $('#dtPath').textContent = `${d.path}:${d.line}`;
+  const docHtml = renderDocstring(d.doc);
+  $('#dtDoc').innerHTML = docHtml;
+  $('#dtDoc').style.display = docHtml ? 'block' : 'none';
+  if (docHtml) upgradeMath($('#dtDoc'));
 
   const guessOf = x => (d.guess && d.guess.has(x)) ||
     (() => { const xd = MODEL.defsById.get(x); return xd && xd.guess && xd.guess.has(d.id); })();
@@ -2675,9 +2994,21 @@ $('#codeBody').addEventListener('click', e => {
 });
 document.querySelectorAll('.ver').forEach(e => e.textContent = APP_VERSION);
 $('#navBack').addEventListener('click', navBack);
+$('#palette').addEventListener('click', e => { if (e.target.id === 'palette') palClose(); });
+$('#palInput').addEventListener('input', () => {
+  PAL.results = palSearch($('#palInput').value); PAL.sel = 0; palRender();
+});
+$('#palInput').addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); PAL.sel = Math.min(PAL.sel + 1, PAL.results.length - 1); palRender(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); PAL.sel = Math.max(PAL.sel - 1, 0); palRender(); }
+  else if (e.key === 'Enter' && PAL.results[PAL.sel]) { e.preventDefault(); palGo(PAL.results[PAL.sel].it); }
+  else if (e.key === 'Escape') palClose();
+});
 $('#navFwd').addEventListener('click', navFwd);
 window.addEventListener('keydown', e => {
   if (!MODEL) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); PAL.open ? palClose() : palOpen(); return; }
+  if (PAL.open) return;
   if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); navBack(); }
   else if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navFwd(); }
 });
@@ -2707,10 +3038,14 @@ $('#depth').addEventListener('input', e => {
 $('#chipGuess').addEventListener('click', () => {
   STATE.showGuess = !STATE.showGuess;
   $('#chipGuess').classList.toggle('on', STATE.showGuess);
-  navReset();
   renderCenter();
 });
-$('#chips').querySelectorAll('.chip:not(#chipGuess)').forEach(c => c.addEventListener('click', () => {
+$('#chipDocs').addEventListener('click', () => {
+  STATE.showDocs = !STATE.showDocs;
+  $('#chipDocs').classList.toggle('on', STATE.showDocs);
+  renderCenter();
+});
+$('#chips').querySelectorAll('.chip[data-k]').forEach(c => c.addEventListener('click', () => {
   const k = c.dataset.k;
   if (STATE.kinds.has(k)) { if (STATE.kinds.size > 1) STATE.kinds.delete(k); } else STATE.kinds.add(k);
   c.classList.toggle('on', STATE.kinds.has(k));
